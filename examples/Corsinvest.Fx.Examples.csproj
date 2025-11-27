@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\Corsinvest.Fx.Functional\Corsinvest.Fx.Functional.csproj" />
+    <ProjectReference Include="..\src\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+
+    <ProjectReference Include="..\src\Corsinvest.Fx.Defer\Corsinvest.Fx.Defer.csproj" />
+  </ItemGroup>
+
+</Project>

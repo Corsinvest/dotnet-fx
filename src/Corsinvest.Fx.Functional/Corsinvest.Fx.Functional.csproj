@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Package Information (unique to this package) -->
+    <PackageId>Corsinvest.Fx.Functional</PackageId>
+    <Title>Functional Programming for C#</Title>
+    <Description>Functional programming types for C#: ResultOf&lt;T, E&gt; for type-safe error handling, Option&lt;T&gt; for optional values, and [Union] attribute for custom discriminated unions. Railway-oriented programming with LINQ support, pattern matching, and zero runtime overhead via source generators. Common constructs (Try, Some, Ok, Fail) are globally available by default.</Description>
+    <PackageTags>functional;result;option;either;union;discriminated-union;pattern-matching;railway;monad;linq;async;type-safe;source-generator</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- Version inherited from Directory.Build.props -->
+
+    <!-- Auto Global Usings Configuration -->
+    <EnableTryGlobalUsings Condition="'$(EnableTryGlobalUsings)' == ''">true</EnableTryGlobalUsings>
+    <EnableFunctionalGlobalUsings Condition="'$(EnableFunctionalGlobalUsings)' == ''">true</EnableFunctionalGlobalUsings>
+  </PropertyGroup>
+
+  <!-- Source Generator Build Dependency -->
+  <ItemGroup>
+    <ProjectReference
+      Include="..\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Package Content -->
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Embed generator in package as analyzer -->
+  <ItemGroup>
+    <None
+      Include="$(OutputPath)\..\Corsinvest.Fx.Functional.Generators\netstandard2.0\Corsinvest.Fx.Functional.Generators.dll"
+      Pack="true"
+      PackagePath="analyzers\dotnet\cs"
+      Visible="false" />
+  </ItemGroup>
+
+  <!-- Auto-enable Try() globally when package is referenced -->
+  <ItemGroup Condition="'$(EnableTryGlobalUsings)' == 'true'">
+    <GlobalUsing Include="Corsinvest.Fx.Functional.TryHelper" Static="true" />
+    <GlobalUsing Include="static Corsinvest.Fx.Functional.TryExtensions" />
+  </ItemGroup>
+
+  <!-- Auto-enable Option/Result factory methods globally -->
+  <ItemGroup Condition="'$(EnableFunctionalGlobalUsings)' == 'true'">
+    <GlobalUsing Include="static Corsinvest.Fx.Functional.Option" />
+    <GlobalUsing Include="static Corsinvest.Fx.Functional.ResultOf" />
+  </ItemGroup>
+</Project>

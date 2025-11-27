@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Package Information -->
+    <PackageId>Corsinvest.Fx.Comptime</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Title>Compile-time Computation for C#</Title>
+    <Description>⚠️ EXPERIMENTAL: Zig-style compile-time execution for C#. Evaluate expressions at compile-time using source generators and analyzers for zero-runtime overhead.</Description>
+    <PackageTags>comptime;compile-time;metaprogramming;source-generator;zero-overhead;const;zig;experimental;alpha</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Source Generator Configuration -->
+    <IncludeBuildOutput Condition="'$(IsPackaging)' == 'true'">false</IncludeBuildOutput>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+  </PropertyGroup>
+
+  <!-- Source Generator Dependencies -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.7.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Package Content -->
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+  <!-- Pack the generator -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers\dotnet\cs\$(AssemblyName).dll" Visible="false" />
+  </ItemGroup>
+
+</Project>

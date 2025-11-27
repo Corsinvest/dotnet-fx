@@ -1,0 +1,51 @@
+<Project>
+  <!--
+    Corsinvest.Fx - Centralized Build Properties
+    All common settings, versioning, and metadata for NuGet packages
+  -->
+
+  <!-- Common build settings for all projects -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <!-- Build quality settings -->
+  <PropertyGroup>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>NU1605</WarningsNotAsErrors>
+    <NoWarn>CS1591</NoWarn>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
+    <PublishDocumentationFile>true</PublishDocumentationFile>
+  </PropertyGroup>
+
+  <!-- Versioning (Default for all packages) -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+  </PropertyGroup>
+
+  <!-- Package metadata (common across all packages) -->
+  <PropertyGroup>
+    <Authors>Corsinvest</Authors>
+    <Company>Corsinvest</Company>
+    <Product>Corsinvest.Fx</Product>
+    <Copyright>Copyright © Corsinvest $([System.DateTime]::Now.Year)</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Corsinvest/dotnet-fx</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Corsinvest/dotnet-fx.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryBranch>main</RepositoryBranch>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+  </PropertyGroup>
+
+  <!-- Package content (icon) - if exists at solution root -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="\" Condition="Exists('$(MSBuildThisFileDirectory)icon.png')" />
+  </ItemGroup>
+</Project>

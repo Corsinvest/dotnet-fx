@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Package Information -->
+    <PackageId>Corsinvest.Fx.Unsafe</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Title>Unsafe and Low-level Operations for C#</Title>
+    <Description>⚠️ EXPERIMENTAL: Low-level unsafe operations including inline assembly wrappers, SIMD intrinsics helpers, and direct memory manipulation for performance-critical code.</Description>
+    <PackageTags>unsafe;inline-asm;assembly;simd;intrinsics;performance;low-level;hardware;experimental;alpha</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Unsafe code enabled -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+  </PropertyGroup>
+
+  <!-- Source Generator Build Dependency -->
+  <ItemGroup>
+    <ProjectReference Include="..\Corsinvest.Fx.Unsafe.Generators\Corsinvest.Fx.Unsafe.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Package Content -->
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+  </ItemGroup>
+
+  <!-- Embed generator in package as analyzer -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\..\Corsinvest.Fx.Unsafe.Generators\netstandard2.0\Corsinvest.Fx.Unsafe.Generators.dll" Pack="true" PackagePath="analyzers\dotnet\cs" Visible="false" />
+  </ItemGroup>
+</Project>

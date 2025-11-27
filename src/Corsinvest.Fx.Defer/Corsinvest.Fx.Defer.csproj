@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Package Information (unique to this package) -->
+    <PackageId>Corsinvest.Fx.Defer</PackageId>
+    <Title>Go-style defer for C#</Title>
+    <Description>Go-style defer statements for C#. Automatic cleanup on scope exit with non-blocking async support. Compile-time safety enforces await using for async defers. Zero-configuration global availability.</Description>
+    <PackageTags>defer;go;cleanup;dispose;scope;resource-management;async;lifo;zig;swift;await-using</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Version inherited from Directory.Build.props -->
+
+    <!-- Auto Global Usings Configuration -->
+    <EnableDeferGlobalUsings Condition="'$(EnableDeferGlobalUsings)' == ''">true</EnableDeferGlobalUsings>
+  </PropertyGroup>
+
+  <!-- Package Content -->
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Auto-enable defer() globally when package is referenced -->
+  <ItemGroup Condition="'$(EnableDeferGlobalUsings)' == 'true'">
+    <GlobalUsing Include="Corsinvest.Fx.Defer.Defer" Static="true" />
+  </ItemGroup>
+
+</Project>
