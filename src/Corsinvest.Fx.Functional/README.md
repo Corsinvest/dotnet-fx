@@ -80,7 +80,7 @@ var user = await userId
 - **[Pipe Extensions](docs/Pipe.md)** - Universal pipeline pattern for any type
 - **[Option<T>](docs/Option.md)** - Optional values *(planned)*
 
-## ?? Troubleshooting
+## 🔧 Troubleshooting
 
 ### Error: "ResultOf<T, E> does not contain a definition for 'Bind'" or other extension methods
 
@@ -88,9 +88,9 @@ var user = await userId
 
 **Solution:** Add the using statement at the top of your file.
 
-`csharp
+```csharp
 using Corsinvest.Fx.Functional; // Add this
-`
+```
 
 ### Error: "The type or namespace name 'UnionAttribute' could not be found"
 
@@ -98,9 +98,9 @@ using Corsinvest.Fx.Functional; // Add this
 
 **Solution:**
 
-`csharp
+```csharp
 using Corsinvest.Fx.Functional; // Add this
-`
+```
 
 ### Error: "Union attribute not generating code"
 
@@ -112,16 +112,16 @@ using Corsinvest.Fx.Functional; // Add this
 2.  **Restart IDE:** Restarting Visual Studio or Rider can clear cached source generator outputs.
 3.  **Check Definition:** Ensure your union type is a public partial record or public partial class. The [Union] attribute requires partial.
 
-    `csharp
-    [Union] // ? Correct
-    public partial record Shape
-    {
-        public partial record Circle(double Radius);
-    }
+```csharp
+[Union] // ✅ Correct
+public partial record Shape
+{
+    public partial record Circle(double Radius);
+}
 
-    [Union] // ? Incorrect - missing 'partial'
-    public record Shape { ... }
-    `
+[Union] // ❌ Incorrect - missing 'partial'
+public record Shape { ... }
+```
 
 ### Warning: CS8602 "Dereference of a possibly null reference" on Option<T>.Value
 
@@ -129,11 +129,11 @@ using Corsinvest.Fx.Functional; // Add this
 
 **Solution:** Use pattern matching (Match) or GetValueOr to safely access the value.
 
-`csharp
-// ? Wrong - can throw at runtime
+```csharp
+// ❌ Wrong - can throw at runtime
 var value = option.Value;
 
-// ? Correct - safe pattern matching
+// ✅ Correct - safe pattern matching
 var value = option.Match(
     some => some.Value,
     none => "default value"
@@ -141,7 +141,7 @@ var value = option.Match(
 
 // ? Also correct - explicit default
 var value = option.GetValueOr("default value");
-`
+```
 
 ### Error: "Cannot implicitly convert type 'T' to 'ResultOf<T, E>'"
 
@@ -149,16 +149,16 @@ var value = option.GetValueOr("default value");
 
 **Solution:** Explicitly wrap your return value in ResultOf.Ok() or ResultOf.Fail(). If you have enabled global usings for the library (default), you can just use Ok() and Fail().
 
-`csharp
+```csharp
 ResultOf<User, string> CreateUser(string email)
 {
-    // ? Wrong
+    // ❌ Wrong
     return new User(email);
 
-    // ? Correct
+    // ✅ Correct
     return Ok(new User(email)); // or ResultOf.Ok(...)
 }
-`
+```
 
 ### Performance: "Using ResultOf/Option is slower than exceptions"
 
@@ -169,13 +169,3 @@ ResultOf<User, string> CreateUser(string email)
 -   **No Boxing:** The types are struct-based discriminated unions, avoiding heap allocations for the wrapper itself.
 
 Exceptions should be reserved for truly **exceptional**, unrecoverable situations, not for predictable business logic failures like "user not found" or "invalid input".
-
-## Key Features
-
-✅ **Type-safe** - Errors explicit in function signatures
-✅ **Composable** - Chain operations with LINQ or pipe syntax
-✅ **Exhaustive** - Pattern matching forces handling all cases
-✅ **Fast** - Zero overhead, source generators, no reflection
-✅ **Async-friendly** - First-class async/await support
-
-
