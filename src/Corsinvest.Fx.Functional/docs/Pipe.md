@@ -10,21 +10,21 @@ Pipe extensions enable F#-style forward piping in C#, allowing you to chain tran
 
 Traditional function composition in C# nests functions inside-out:
 
-\`\`\`csharp
+```csharp
 // ❌ Hard to read
 var result = FormatOutput(AddPrefix(ToUpper(Trim(input))));
-\`\`\`
+```
 
 ## The Solution
 
-\`\`\`csharp
+```csharp
 // ✅ Easy to read  
 var result = input
     .Pipe(Trim)
     .Pipe(ToUpper)
     .Pipe(AddPrefix)
     .Pipe(FormatOutput);
-\`\`\`
+```
 
 ---
 

@@ -231,116 +231,16 @@ void ProcessFile(string path)
 
 ## 🔧 Troubleshooting
 
-### Common Errors and Solutions
+For common issues and solutions, please refer to the **Troubleshooting** section in the README of the specific package you are using:
 
-#### Error: "ResultOf<T, E> does not contain a definition for 'Bind'"
+- [Functional Package Troubleshooting](src/Corsinvest.Fx.Functional/README.md#-troubleshooting)
+- [Defer Package Troubleshooting](src/Corsinvest.Fx.Defer/README.md#-troubleshooting)
 
-**Cause:** Missing `using Corsinvest.Fx.Functional;` directive.
+If you still need help:
 
-**Solution:**
-
-```csharp
-using Corsinvest.Fx.Functional; // Add this at the top of your file
-```
-
-#### Error: "Union attribute not generating code"
-
-**Cause:** Source generators not running or IDE cache issue.
-
-**Solutions:**
-
-1. Clean and rebuild: `dotnet clean && dotnet build`
-2. Restart your IDE (VS/Rider)
-3. Check that the union type is `partial record` or `partial class`
-4. Verify the `[Union]` attribute is applied correctly
-
-**Example:**
-
-```csharp
-[Union] // ✅ Correct
-public partial record Shape
-{
-    public partial record Circle(double Radius);
-    public partial record Rectangle(double Width, double Height);
-}
-
-[Union] // ❌ Incorrect - missing 'partial'
-public record Shape { ... }
-```
-
-#### Error: "'DeferredAsyncAction' is inaccessible due to its protection level"
-
-**Cause:** Attempting to use `new DeferredAsyncAction()` directly instead of the `defer` function.
-
-**Solution:**
-
-```csharp
-// ❌ Wrong
-var deferred = new DeferredAsyncAction(async () => await Cleanup());
-
-// ✅ Correct
-await using var _ = Defer.defer(async () => await Cleanup());
-```
-
-#### Warning: CS8602 "Dereference of a possibly null reference"
-
-**Cause:** Accessing `Option<T>.Value` without checking if it has a value.
-
-**Solution:** Use pattern matching instead:
-
-```csharp
-// ❌ Wrong - can throw
-var value = option.Value;
-
-// ✅ Correct - safe pattern matching
-var value = option.Match(
-    some => some.Value,
-    none => defaultValue
-);
-
-// ✅ Also correct - GetValueOr
-var value = option.GetValueOr(defaultValue);
-```
-
-#### Error: "Cannot implicitly convert type 'T' to 'ResultOf<T, E>'"
-
-**Cause:** Attempting to return a raw value instead of wrapping it in `ResultOf.Ok()` or `ResultOf.Fail()`.
-
-**Solution:**
-
-```csharp
-ResultOf<User, ValidationError> CreateUser(string email)
-{
-    // ❌ Wrong
-    return new User(email);
-
-    // ✅ Correct
-    return ResultOf.Ok<User, ValidationError>(new User(email));
-}
-```
-
-#### Performance: "Using ResultOf/Option is slower than exceptions"
-
-**Not true!** `ResultOf` and `Option` are struct-based and typically **faster** than exceptions because:
-
-- No stack trace generation
-- No exception unwinding
-- Better CPU cache locality
-- Predictable control flow
-
-Exceptions should be reserved for **exceptional** cases, not control flow.
-
-### Getting Help
-
-If you encounter an issue not listed here:
-
-1. Check the [examples/](examples/) folder for similar use cases
-2. Read the detailed package READMEs in `src/*/README.md`
-3. Search [existing issues](https://github.com/Corsinvest/dotnet-fx/issues)
-4. Open a [new issue](https://github.com/Corsinvest/dotnet-fx/issues/new) with:
-   - Minimal reproducible code
-   - Expected vs actual behavior
-   - .NET version and OS
+1. Check the [examples/](examples/) folder for similar use cases.
+2. Search [existing issues](https://github.com/Corsinvest/dotnet-fx/issues).
+3. Open a [new issue](https://github.com/Corsinvest/dotnet-fx/issues/new) with a minimal reproducible code sample.
 
 ---
 

@@ -296,13 +296,23 @@ await using var _ = defer(async () => await CleanupAsync());
 using var _ = defer(SomeMethod);
 await using var _ = defer(SomeAsyncMethod);
 ```
+## 🔧 Troubleshooting
 
-## License
+### Error: "'DeferredAsyncAction' is inaccessible due to its protection level"
 
-MIT License - see [LICENSE](../../LICENSE) for details
+**Cause:** Attempting to use `new DeferredAsyncAction()` or `new DeferredAction()` directly instead of the `defer()` factory function. The constructors are internal to ensure the correct disposal pattern is used.
 
-## Support
+**Solution:** Always use the `defer()` function to create a deferred action.
 
-📖 [Documentation](https://github.com/Corsinvest/dotnet-fx)
-🐛 [Issues](https://github.com/Corsinvest/dotnet-fx/issues)
-💬 [Discussions](https://github.com/Corsinvest/dotnet-fx/discussions)
+```csharp
+// ❌ Wrong
+var deferred = new DeferredAsyncAction(async () => await CleanupAsync());
+
+// ✅ Correct - for async cleanup
+await using var _ = defer(async () => await CleanupAsync());
+
+// ✅ Correct - for sync cleanup
+using var _ = defer(() => Cleanup());
+```
+
+

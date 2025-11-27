@@ -564,13 +564,6 @@ ResultOf<Option<string>, ConfigError> GetOptionalSetting(string key);
 - ✅ **Inline-friendly** - JIT can optimize simple operations
 - ✅ **No exceptions** - Faster than try-catch patterns
 
-## See Also
-
-- [ResultOf<T, E>](ResultOf.md) - For operations that can fail with errors
-- [Union Types](Union.md) - Create custom discriminated unions
-- [Pipe Extensions](Pipe.md) - Chain transformations on Option values
-- [Examples](Examples.md) - More real-world usage patterns
-
 ## Implementation Note
 
 Option<T> can be implemented as a discriminated union:

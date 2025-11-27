@@ -75,9 +75,100 @@ var user = await userId
 ## Documentation
 
 - **[ResultOf<T, E>](docs/ResultOf.md)** - Type-safe error handling with Railway-Oriented Programming
+- **[Try Functions](docs/Try.md)** - Safely execute code and convert exceptions to ResultOf
 - **[Union Types](docs/Union.md)** - Custom discriminated unions with source generators
 - **[Pipe Extensions](docs/Pipe.md)** - Universal pipeline pattern for any type
 - **[Option<T>](docs/Option.md)** - Optional values *(planned)*
+
+## ?? Troubleshooting
+
+### Error: "ResultOf<T, E> does not contain a definition for 'Bind'" or other extension methods
+
+**Cause:** The necessary using Corsinvest.Fx.Functional; directive is missing.
+
+**Solution:** Add the using statement at the top of your file.
+
+`csharp
+using Corsinvest.Fx.Functional; // Add this
+`
+
+### Error: "The type or namespace name 'UnionAttribute' could not be found"
+
+**Cause:** Missing using Corsinvest.Fx.Functional; directive.
+
+**Solution:**
+
+`csharp
+using Corsinvest.Fx.Functional; // Add this
+`
+
+### Error: "Union attribute not generating code"
+
+**Cause:** This usually happens if the source generator is not running correctly or there's an IDE cache issue.
+
+**Solutions:**
+
+1.  **Clean and Rebuild:** Run dotnet clean && dotnet build. This often resolves source generator issues.
+2.  **Restart IDE:** Restarting Visual Studio or Rider can clear cached source generator outputs.
+3.  **Check Definition:** Ensure your union type is a public partial record or public partial class. The [Union] attribute requires partial.
+
+    `csharp
+    [Union] // ? Correct
+    public partial record Shape
+    {
+        public partial record Circle(double Radius);
+    }
+
+    [Union] // ? Incorrect - missing 'partial'
+    public record Shape { ... }
+    `
+
+### Warning: CS8602 "Dereference of a possibly null reference" on Option<T>.Value
+
+**Cause:** You are trying to access the .Value of an Option<T> directly without first checking if it IsSome. This is unsafe and defeats the purpose of Option.
+
+**Solution:** Use pattern matching (Match) or GetValueOr to safely access the value.
+
+`csharp
+// ? Wrong - can throw at runtime
+var value = option.Value;
+
+// ? Correct - safe pattern matching
+var value = option.Match(
+    some => some.Value,
+    none => "default value"
+);
+
+// ? Also correct - explicit default
+var value = option.GetValueOr("default value");
+`
+
+### Error: "Cannot implicitly convert type 'T' to 'ResultOf<T, E>'"
+
+**Cause:** You are returning a plain value from a function that is declared to return a ResultOf<T, E>.
+
+**Solution:** Explicitly wrap your return value in ResultOf.Ok() or ResultOf.Fail(). If you have enabled global usings for the library (default), you can just use Ok() and Fail().
+
+`csharp
+ResultOf<User, string> CreateUser(string email)
+{
+    // ? Wrong
+    return new User(email);
+
+    // ? Correct
+    return Ok(new User(email)); // or ResultOf.Ok(...)
+}
+`
+
+### Performance: "Using ResultOf/Option is slower than exceptions"
+
+**This is not true.** In fact, ResultOf and Option are designed to be significantly **faster** than exception-based control flow for expected errors.
+
+-   **No Stack Trace:** Exceptions are slow primarily because they need to capture and unwind the entire call stack. ResultOf and Option are simple struct returns.
+-   **Predictable Control Flow:** The CPU's branch predictor works better with the predictable checks of IsOk or Match than with the high cost of a 	hrow.
+-   **No Boxing:** The types are struct-based discriminated unions, avoiding heap allocations for the wrapper itself.
+
+Exceptions should be reserved for truly **exceptional**, unrecoverable situations, not for predictable business logic failures like "user not found" or "invalid input".
 
 ## Key Features
 
@@ -87,12 +178,4 @@ var user = await userId
 ✅ **Fast** - Zero overhead, source generators, no reflection
 ✅ **Async-friendly** - First-class async/await support
 
-## License
 
-MIT License - see [LICENSE](../../LICENSE) for details
-
-## Support
-
-📖 [Documentation](https://github.com/Corsinvest/dotnet-fx)
-🐛 [Issues](https://github.com/Corsinvest/dotnet-fx/issues)
-💬 [Discussions](https://github.com/Corsinvest/dotnet-fx/discussions)
