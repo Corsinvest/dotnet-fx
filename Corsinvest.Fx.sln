@@ -11,25 +11,33 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Defer.Tests", "tests\Corsinvest.Fx.Defer.Tests\Corsinvest.Fx.Defer.Tests.csproj", "{B86116A5-030E-4AF4-AF4A-64A999B7B8DD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Comptime", "src\Corsinvest.Fx.Comptime\Corsinvest.Fx.Comptime.csproj", "{B2345678-9ABC-DEF0-1234-56789ABCDEF0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime", "src\CompileTime\Corsinvest.Fx.CompileTime\Corsinvest.Fx.CompileTime.csproj", "{B2345678-9ABC-DEF0-1234-56789ABCDEF0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Unsafe", "src\Corsinvest.Fx.Unsafe\Corsinvest.Fx.Unsafe.csproj", "{C3456789-ABCD-EF01-2345-6789ABCDEF01}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Unsafe", "src\Unsafe\Corsinvest.Fx.Unsafe\Corsinvest.Fx.Unsafe.csproj", "{C3456789-ABCD-EF01-2345-6789ABCDEF01}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Comptime.Tests", "tests\Corsinvest.Fx.Comptime.Tests\Corsinvest.Fx.Comptime.Tests.csproj", "{5DFFE5CF-B627-41DE-9ED2-2C1DD5E2402D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime.Tests", "tests\CompileTime\Corsinvest.Fx.CompileTime.Tests\Corsinvest.Fx.CompileTime.Tests.csproj", "{5DFFE5CF-B627-41DE-9ED2-2C1DD5E2402D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Unsafe.Tests", "tests\Corsinvest.Fx.Unsafe.Tests\Corsinvest.Fx.Unsafe.Tests.csproj", "{6B48B1A7-2BD7-4170-A382-27C9D09A83D8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Unsafe.Tests", "tests\Unsafe\Corsinvest.Fx.Unsafe.Tests\Corsinvest.Fx.Unsafe.Tests.csproj", "{6B48B1A7-2BD7-4170-A382-27C9D09A83D8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional", "src\Corsinvest.Fx.Functional\Corsinvest.Fx.Functional.csproj", "{E6CB3E18-0D74-4A46-AE78-C0EE1809B6B4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional", "src\Functional\Corsinvest.Fx.Functional\Corsinvest.Fx.Functional.csproj", "{E6CB3E18-0D74-4A46-AE78-C0EE1809B6B4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional.Tests", "tests\Corsinvest.Fx.Functional.Tests\Corsinvest.Fx.Functional.Tests.csproj", "{754A11FF-E06C-455E-9DEC-722E9CE4BB27}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional.Tests", "tests\Functional\Corsinvest.Fx.Functional.Tests\Corsinvest.Fx.Functional.Tests.csproj", "{754A11FF-E06C-455E-9DEC-722E9CE4BB27}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional.Generators", "src\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj", "{B5525A5A-C8C8-458D-A955-1EA7A7E39039}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional.Generators", "src\Functional\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj", "{B5525A5A-C8C8-458D-A955-1EA7A7E39039}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Unsafe.Generators", "src\Corsinvest.Fx.Unsafe.Generators\Corsinvest.Fx.Unsafe.Generators.csproj", "{794F9482-091E-418B-9387-422ECB5EAD17}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Unsafe.Generators", "src\Unsafe\Corsinvest.Fx.Unsafe.Generators\Corsinvest.Fx.Unsafe.Generators.csproj", "{794F9482-091E-418B-9387-422ECB5EAD17}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Examples", "examples\Corsinvest.Fx.Examples.csproj", "{E13142D8-6CD2-4F7B-B1BC-3C93C7B40CDF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime.Generator", "src\CompileTime\Corsinvest.Fx.CompileTime.Generator\Corsinvest.Fx.CompileTime.Generator.csproj", "{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CompileTime", "CompileTime", "{1691C985-2B6E-670C-99D7-E8EAF76BE8A1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime.Tasks", "src\CompileTime\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.csproj", "{5FF5FD2F-1E34-4170-B137-FCD456F55933}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime.Analyzers", "src\CompileTime\Corsinvest.Fx.CompileTime.Analyzers\Corsinvest.Fx.CompileTime.Analyzers.csproj", "{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -173,6 +181,42 @@ Global
 		{E13142D8-6CD2-4F7B-B1BC-3C93C7B40CDF}.Release|x64.Build.0 = Release|Any CPU
 		{E13142D8-6CD2-4F7B-B1BC-3C93C7B40CDF}.Release|x86.ActiveCfg = Release|Any CPU
 		{E13142D8-6CD2-4F7B-B1BC-3C93C7B40CDF}.Release|x86.Build.0 = Release|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Debug|x64.Build.0 = Debug|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Debug|x86.Build.0 = Debug|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Release|x64.ActiveCfg = Release|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Release|x64.Build.0 = Release|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Release|x86.ActiveCfg = Release|Any CPU
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E}.Release|x86.Build.0 = Release|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Debug|x64.Build.0 = Debug|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Debug|x86.Build.0 = Debug|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Release|x64.ActiveCfg = Release|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Release|x64.Build.0 = Release|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Release|x86.ActiveCfg = Release|Any CPU
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933}.Release|x86.Build.0 = Release|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Debug|x64.Build.0 = Debug|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Debug|x86.Build.0 = Debug|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x64.ActiveCfg = Release|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x64.Build.0 = Release|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x86.ActiveCfg = Release|Any CPU
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -189,5 +233,9 @@ Global
 		{B5525A5A-C8C8-458D-A955-1EA7A7E39039} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{794F9482-091E-418B-9387-422ECB5EAD17} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{E13142D8-6CD2-4F7B-B1BC-3C93C7B40CDF} = {B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}
+		{4CBF2FCC-6E09-4009-90FF-1A642F2BDD4E} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{1691C985-2B6E-670C-99D7-E8EAF76BE8A1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{5FF5FD2F-1E34-4170-B137-FCD456F55933} = {1691C985-2B6E-670C-99D7-E8EAF76BE8A1}
+		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9} = {1691C985-2B6E-670C-99D7-E8EAF76BE8A1}
 	EndGlobalSection
 EndGlobal

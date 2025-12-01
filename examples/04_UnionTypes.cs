@@ -121,14 +121,11 @@ public static class UnionTypes
         );
 
     // Handle API response with different UI states
-    private static void HandleApiResponse(ApiResponse response)
-    {
-        response.Match(
+    private static void HandleApiResponse(ApiResponse response) => response.Match(
             onLoading: _ => Console.WriteLine("   ⏳ Loading..."),
             onSuccess: data => Console.WriteLine($"   ✅ Success: User {data.User.Name} ({data.User.Email})"),
             onError: err => Console.WriteLine($"   ❌ Error: {err.Message}")
         );
-    }
 
     // Calculate area of shape
     private static double CalculateArea(Shape shape)

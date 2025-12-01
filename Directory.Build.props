@@ -6,7 +6,8 @@
 
   <!-- Common build settings for all projects -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <!-- Default TargetFramework for most projects (CompileTime projects excluded - they require .NET 9+) -->
+    <TargetFramework Condition="'$(TargetFramework)' == '' AND '$(TargetFrameworks)' == '' AND !$(MSBuildProjectName.Contains('CompileTime'))">net8.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

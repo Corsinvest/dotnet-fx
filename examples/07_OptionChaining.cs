@@ -180,11 +180,9 @@ public static class OptionChaining
         };
 
     // Helper: Create test data
-    private static Dictionary<int, UserProfile> CreateTestData()
+    private static Dictionary<int, UserProfile> CreateTestData() => new Dictionary<int, UserProfile>
     {
-        return new Dictionary<int, UserProfile>
-        {
-            [1] = new UserProfile(
+        [1] = new UserProfile(
                 1,
                 "Alice",
                 Option.Some(new UserSettings(
@@ -192,13 +190,12 @@ public static class OptionChaining
                     Option.Some("dark")
                 ))
             ),
-            [2] = new UserProfile(
+        [2] = new UserProfile(
                 2,
                 "Bob",
                 Option.None<UserSettings>()  // No settings
             )
-        };
-    }
+    };
 
     // Helper: Format option for display
     private static string FormatOption<T>(Option<T> option)

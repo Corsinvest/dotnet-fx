@@ -43,10 +43,9 @@ public static class ResultOfRailway
     }
 
     // Main railway pipeline
-    private static ResultOf<Order, OrderError> ProcessOrder(OrderRequest request)
-    {
+    private static ResultOf<Order, OrderError> ProcessOrder(OrderRequest request) =>
         // Each step returns ResultOf - if any fails, the entire pipeline short-circuits
-        return ValidateOrder(request)
+        ValidateOrder(request)
             .TapOk(_ => Console.WriteLine("   → Order validated"))
             .Bind(GetCustomer)
             .TapOk(customer => Console.WriteLine($"   → Customer found: {customer.Name}"))
@@ -66,7 +65,6 @@ public static class ResultOfRailway
                 TotalAmount: data.total
             ))
             .TapOk(order => Console.WriteLine($"   → Order created: #{order.OrderId}"));
-    }
 
     // Step 1: Validate order request
     private static ResultOf<OrderRequest, OrderError> ValidateOrder(OrderRequest request)

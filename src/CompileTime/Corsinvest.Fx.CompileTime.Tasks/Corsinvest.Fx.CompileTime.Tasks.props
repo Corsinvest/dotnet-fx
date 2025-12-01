@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <!-- Enable/disable CompileTime execution -->
+    <CompileTimeEnabled Condition="'$(CompileTimeEnabled)' == ''">true</CompileTimeEnabled>
+
+    <!-- Timeout in milliseconds for each method execution -->
+    <CompileTimeTimeout Condition="'$(CompileTimeTimeout)' == ''">5000</CompileTimeTimeout>
+
+    <!-- Behavior on timeout: Skip, Warning, Error -->
+    <CompileTimeBehaviorOnTimeout Condition="'$(CompileTimeBehaviorOnTimeout)' == ''">Skip</CompileTimeBehaviorOnTimeout>
+
+    <!-- Generate performance report (CompileTimeReport.md) -->
+    <CompileTimeReport Condition="'$(CompileTimeReport)' == ''">false</CompileTimeReport>
+
+    <!-- Debug mode: None, Files, Verbose -->
+    <CompileTimeDebugMode Condition="'$(CompileTimeDebugMode)' == ''">None</CompileTimeDebugMode>
+  </PropertyGroup>
+</Project>

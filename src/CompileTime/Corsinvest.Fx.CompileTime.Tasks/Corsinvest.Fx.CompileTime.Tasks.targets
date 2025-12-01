@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <!-- Determine Generator path based on target framework -->
+    <CompileTimeGeneratorPath Condition="'$(CompileTimeGeneratorPath)' == '' and ('$(TargetFramework)' == 'net9.0' or '$(TargetFramework)' == '')">$(MSBuildThisFileDirectory)..\tools\net9.0\Corsinvest.Fx.CompileTime.Generator.exe</CompileTimeGeneratorPath>
+    <CompileTimeGeneratorPath Condition="'$(CompileTimeGeneratorPath)' == '' and '$(TargetFramework)' == 'net10.0'">$(MSBuildThisFileDirectory)..\tools\net10.0\Corsinvest.Fx.CompileTime.Generator.exe</CompileTimeGeneratorPath>
+    <!-- Fallback for other frameworks -->
+    <CompileTimeGeneratorPath Condition="'$(CompileTimeGeneratorPath)' == ''">$(MSBuildThisFileDirectory)..\tools\net9.0\Corsinvest.Fx.CompileTime.Generator.exe</CompileTimeGeneratorPath>
+  </PropertyGroup>
+
+  <UsingTask TaskName="Corsinvest.Fx.CompileTime.Tasks.CompileTimeTask"
+             AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net9.0\Corsinvest.Fx.CompileTime.Tasks.dll"
+             Condition="'$(TargetFramework)' == 'net9.0' or '$(TargetFramework)' == ''" />
+
+  <UsingTask TaskName="Corsinvest.Fx.CompileTime.Tasks.CompileTimeTask"
+             AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net10.0\Corsinvest.Fx.CompileTime.Tasks.dll"
+             Condition="'$(TargetFramework)' == 'net10.0'" />
+
+  <Target Name="CompileTimeExecution"
+          BeforeTargets="CoreCompile"
+          Condition="'$(CompileTimeEnabled)' == 'true' and '@(Compile)' != ''">
+
+    <!-- Ensure output directory exists -->
+    <MakeDir Directories="$(IntermediateOutputPath)CompileTime\" />
+
+    <CompileTimeTask
+      SourceFiles="@(Compile)"
+      ProjectDir="$(MSBuildProjectDirectory)"
+      GeneratorAssemblyPath="$(CompileTimeGeneratorPath)"
+      References="@(ReferencePath)"
+      OutputPath="$(IntermediateOutputPath)CompileTime"
+      TimeoutMs="$(CompileTimeTimeout)"
+      TimeoutBehavior="$(CompileTimeBehaviorOnTimeout)"
+      CompileTimeEnabled="$(CompileTimeEnabled)"
+      GenerateReport="$(CompileTimeReport)"
+      DebugMode="$(CompileTimeDebugMode)">
+      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
+      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
+    </CompileTimeTask>
+
+    <!-- Add diagnostics file as AdditionalFile for Analyzer -->
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\obj\CompileTimeDiagnostics.json')">
+      <AdditionalFiles Include="$(MSBuildProjectDirectory)\obj\CompileTimeDiagnostics.json" />
+    </ItemGroup>
+
+  </Target>
+
+  <!-- Clean generated files on dotnet clean -->
+  <Target Name="CompileTimeClean" BeforeTargets="Clean">
+    <RemoveDir Directories="$(IntermediateOutputPath)CompileTime\"
+               Condition="Exists('$(IntermediateOutputPath)CompileTime\')" />
+  </Target>
+
+</Project>

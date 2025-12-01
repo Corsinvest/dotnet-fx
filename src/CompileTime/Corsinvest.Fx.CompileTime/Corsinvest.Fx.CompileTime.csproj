@@ -1,0 +1,104 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Target Frameworks -->
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+
+    <!-- Package Information -->
+    <PackageId>Corsinvest.Fx.CompileTime</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Title>Compile-time Computation for C#</Title>
+    <Description>⚠️ EXPERIMENTAL: Zig-style compile-time execution for C#. Requires .NET 9+ SDK. Evaluate expressions at compile-time using interceptors for zero-runtime overhead.</Description>
+    <PackageTags>comptime;compile-time;metaprogramming;interceptors;zero-overhead;const;zig;experimental;alpha;net9</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <NoWarn>$(NoWarn);RS1035;RS2008;NU5119;NU5100</NoWarn>
+  </PropertyGroup>
+
+  <!-- Include runtime API from Shared -->
+  <ItemGroup>
+    <Compile Include="..\Corsinvest.Fx.CompileTime.Shared\CacheStrategy.cs" Link="CacheStrategy.cs" />
+    <Compile Include="..\Corsinvest.Fx.CompileTime.Shared\CompileTimeAttribute.cs" Link="CompileTimeAttribute.cs" />
+  </ItemGroup>
+
+  <!-- Package Dependencies -->
+  <ItemGroup>
+    <ProjectReference Include="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Corsinvest.Fx.CompileTime.Generator\Corsinvest.Fx.CompileTime.Generator.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false"
+                      SetTargetFramework="TargetFramework=$(TargetFramework)" />
+    <ProjectReference Include="..\Corsinvest.Fx.CompileTime.Analyzers\Corsinvest.Fx.CompileTime.Analyzers.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- Ensure Tasks, Generator, and Analyzers are built before packing -->
+  <Target Name="BuildDependenciesBeforePack" BeforeTargets="GenerateNuspec">
+    <!-- Build Tasks -->
+    <MSBuild Projects="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=net9.0" />
+    <MSBuild Projects="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=net10.0" />
+    <!-- Build Generator -->
+    <MSBuild Projects="..\Corsinvest.Fx.CompileTime.Generator\Corsinvest.Fx.CompileTime.Generator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=net9.0" />
+    <MSBuild Projects="..\Corsinvest.Fx.CompileTime.Generator\Corsinvest.Fx.CompileTime.Generator.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=net10.0" />
+    <!-- Build Analyzers -->
+    <MSBuild Projects="..\Corsinvest.Fx.CompileTime.Analyzers\Corsinvest.Fx.CompileTime.Analyzers.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)" />
+  </Target>
+
+  <!-- Package Content -->
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+
+    <!-- Include Generator executables in tools/ folder -->
+    <None Include="..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net9.0\**\*.*"
+          Pack="true"
+          PackagePath="tools\net9.0"
+          Condition="Exists('..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net9.0')" />
+    <None Include="..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net10.0\**\*.*"
+          Pack="true"
+          PackagePath="tools\net10.0"
+          Condition="Exists('..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net10.0')" />
+
+    <!-- Include Tasks assemblies in tasks/ folder -->
+    <None Include="..\Corsinvest.Fx.CompileTime.Tasks\bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Tasks.dll"
+          Pack="true"
+          PackagePath="tasks\net9.0"
+          Condition="Exists('..\Corsinvest.Fx.CompileTime.Tasks\bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Tasks.dll')" />
+    <None Include="..\Corsinvest.Fx.CompileTime.Tasks\bin\$(Configuration)\net10.0\Corsinvest.Fx.CompileTime.Tasks.dll"
+          Pack="true"
+          PackagePath="tasks\net10.0"
+          Condition="Exists('..\Corsinvest.Fx.CompileTime.Tasks\bin\$(Configuration)\net10.0\Corsinvest.Fx.CompileTime.Tasks.dll')" />
+
+    <!-- Include props and targets files -->
+    <None Include="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.props"
+          Pack="true"
+          PackagePath="build\Corsinvest.Fx.CompileTime.props" />
+    <None Include="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.targets"
+          Pack="true"
+          PackagePath="build\Corsinvest.Fx.CompileTime.targets" />
+    <None Include="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.props"
+          Pack="true"
+          PackagePath="buildTransitive\Corsinvest.Fx.CompileTime.props" />
+    <None Include="..\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.targets"
+          Pack="true"
+          PackagePath="buildTransitive\Corsinvest.Fx.CompileTime.targets" />
+
+    <!-- Include Analyzer -->
+    <None Include="..\Corsinvest.Fx.CompileTime.Analyzers\bin\$(Configuration)\netstandard2.0\Corsinvest.Fx.CompileTime.Analyzers.dll"
+          Pack="true"
+          PackagePath="analyzers\dotnet\cs"
+          Visible="false"
+          Condition="Exists('..\Corsinvest.Fx.CompileTime.Analyzers\bin\$(Configuration)\netstandard2.0\Corsinvest.Fx.CompileTime.Analyzers.dll')" />
+  </ItemGroup>
+
+</Project>

@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet build:*)",
+      "Bash(git mv:*)",
+      "Bash(powershell.exe -NoProfile -Command:*)",
+      "Bash(dotnet clean:*)",
+      "Bash(Get-ChildItem -Path . -Include bin,obj -Recurse -Directory)",
+      "Bash(Remove-Item -Recurse -Force)",
+      "Bash(find:*)",
+      "Bash(dotnet sln add:*)",
+      "Bash(dotnet sln:*)",
+      "Bash(dotnet pack:*)",
+      "Bash(unzip:*)"
     ],
     "deny": [],
     "ask": []

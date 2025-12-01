@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- Target Frameworks -->
+    <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+
+    <!-- Package Information -->
+    <PackageId>Corsinvest.Fx.CompileTime.Tasks</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Title>CompileTime MSBuild Tasks</Title>
+    <Description>MSBuild tasks for Corsinvest.Fx.CompileTime - compile-time execution infrastructure</Description>
+    <PackageTags>comptime;msbuild;tasks;build</PackageTags>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <NoWarn>$(NoWarn);RS1035;RS2008</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- MSBuild Task dependencies -->
+    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="18.0.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.0.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.7.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Include shared files as links -->
+  <ItemGroup>
+    <Compile Include="..\Corsinvest.Fx.CompileTime.Shared\**\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+  <!-- Pack as build task -->
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="tasks\$(TargetFramework)" Visible="false" />
+    <None Include="Corsinvest.Fx.CompileTime.Tasks.props" Pack="true" PackagePath="build" />
+    <None Include="Corsinvest.Fx.CompileTime.Tasks.targets" Pack="true" PackagePath="build" />
+    <None Include="Corsinvest.Fx.CompileTime.Tasks.props" Pack="true" PackagePath="buildTransitive" />
+    <None Include="Corsinvest.Fx.CompileTime.Tasks.targets" Pack="true" PackagePath="buildTransitive" />
+  </ItemGroup>
+
+</Project>

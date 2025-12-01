@@ -21,7 +21,7 @@ public static class CombinedPatterns
         var testUsers = new[]
         {
             ("alice@example.com", "Alice", "25"),
-            ("", "Bob", "30"),                              // Missing email
+            (string.Empty, "Bob", "30"),                              // Missing email
             ("charlie@example.com", "Charlie", "invalid"),  // Invalid age
             ("bob@example.com", "Bob", "28")                // Duplicate email
         };

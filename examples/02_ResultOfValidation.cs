@@ -23,7 +23,7 @@ public static class ResultOfValidation
             ("invalid-email", "Bob", "30"),
             ("bob@example.com", "B", "35"),
             ("charlie@example.com", "Charlie", "not-a-number"),
-            ("", "", "")
+            (string.Empty, string.Empty, string.Empty)
         };
 
         foreach (var (email, name, ageStr) in testCases)
@@ -51,10 +51,9 @@ public static class ResultOfValidation
     }
 
     // Main validation function using Railway-Oriented Programming
-    private static ResultOf<User, ValidationError> ValidateAndCreateUser(string email, string name, string ageStr)
-    {
+    private static ResultOf<User, ValidationError> ValidateAndCreateUser(string email, string name, string ageStr) =>
         // Validate each field, short-circuit on first error
-        return ValidateEmail(email)
+        ValidateEmail(email)
             .Bind(_ => ValidateName(name))
             .Bind(_ => ValidateAge(ageStr))
             .Map(age => new User(
@@ -63,7 +62,6 @@ public static class ResultOfValidation
                 Email: email,
                 Age: age
             ));
-    }
 
     // Validate email
     private static ResultOf<string, ValidationError> ValidateEmail(string email)
