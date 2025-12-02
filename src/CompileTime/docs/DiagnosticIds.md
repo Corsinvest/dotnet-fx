@@ -19,7 +19,7 @@ CompileTime uses consecutive diagnostic IDs for simplicity:
 
 ---
 
-## 🚨 Core Diagnostics (COMPTIME001-099)
+## 🚨 Core Diagnostics (COMPTIME001-004)
 
 ### Method Validation and Requirements
 
@@ -66,26 +66,22 @@ public static List<int> GetNumbers() => new() { 1, 2, 3 };
 
 ---
 
-## ⏱️ Performance Diagnostics (COMPTIME100-199)
+## ⚡ Performance and Suggestions (COMPTIME005-010)
 
-### Execution Time and Performance Issues
+### Performance Issues and Optimization Hints
 
 | Code          | Severity   | Description                             | Solution                                   |
 | ------------- | ---------- | --------------------------------------- | ------------------------------------------ |
-| `COMPTIME100` | 💡 Info    | Method could benefit from [CompileTime] | Consider adding `[CompileTime]` attribute |
-| `COMPTIME101` | ⚠️ Warning | Slow method execution                   | Optimize method or increase threshold      |
-| `COMPTIME102` | ⚠️ Warning | Method execution skipped due to timeout | Increase timeout or optimize method        |
-| `COMPTIME103` | ❌ Error   | Method execution timeout error          | Fix infinite loops or increase timeout     |
-| `COMPTIME104` | ⚠️ Warning | Method execution timeout warning        | Consider optimization                      |
-| `COMPTIME105` | ⚠️ Warning | Unknown timeout behavior                | Check `CompileTimeTimeoutBehavior` setting |
+| `COMPTIME005` | 💡 Info    | Method could benefit from [CompileTime] | Consider adding `[CompileTime]` attribute |
+| `COMPTIME006` | ⚠️ Warning | Slow method execution                   | Optimize method or increase threshold      |
 
 #### Performance Examples
 
-### Suggestion Analyzer (COMPTIME100)
+### Suggestion Analyzer (COMPTIME005)
 
 The built-in suggestion analyzer helps you identify opportunities to use `[CompileTime]`. It runs in the background and provides suggestions for methods that appear to be good candidates for compile-time execution.
 
-**Diagnostic:** `COMPTIME100` - Method could benefit from [CompileTime]
+**Diagnostic:** `COMPTIME005` - Method could benefit from [CompileTime]
 
 This informational diagnostic is triggered when a method meets the following criteria:
 - It is `static`.
@@ -111,7 +107,7 @@ public static string GetApiVersion()
 ```
 
 ```csharp
-// ⚠️ COMPTIME101: Slow method execution
+// ⚠️ COMPTIME006: Slow method execution
 [CompileTime]
 public static int SlowMethod()
 {
@@ -135,8 +131,24 @@ public static int SlowMethodSuppressed()
 }
 ```
 
+---
+
+## ⏱️ Timeout Handling (COMPTIME011-015)
+
+### Timeout Behavior and Execution Limits
+
+| Code          | Severity   | Description                             | Solution                               |
+| ------------- | ---------- | --------------------------------------- | -------------------------------------- |
+| `COMPTIME011` | ⚠️ Warning | Method execution skipped due to timeout | Increase timeout or optimize method    |
+| `COMPTIME012` | ❌ Error   | Method execution timeout error          | Fix infinite loops or increase timeout |
+| `COMPTIME013` | ⚠️ Warning | Method execution timeout warning        | Consider optimization                  |
+| `COMPTIME014` | ⚠️ Warning | Unknown timeout behavior                | Check `CompileTimeTimeoutBehavior` setting |
+| `COMPTIME015` | ❌ Error   | Method execution timeout                | Increase timeout or fix infinite loops |
+
+#### Timeout Examples
+
 ```csharp
-// ❌ COMPTIME103: Timeout error
+// ❌ COMPTIME012: Timeout error (with Error behavior)
 [CompileTime(TimeoutMs = 100)]
 public static int InfiniteLoopMethod()
 {
@@ -155,23 +167,22 @@ public static int FixedMethod()
 
 ---
 
-## 💥 Execution Diagnostics (COMPTIME301-399)
+## 💥 Execution Errors (COMPTIME016-020)
 
 ### Runtime Execution Failures
 
-| Code          | Severity | Description              | Solution                               |
-| ------------- | -------- | ------------------------ | -------------------------------------- |
-| `COMPTIME301` | ❌ Error | Method execution timeout | Increase timeout or fix infinite loops |
-| `COMPTIME302` | ❌ Error | Method execution error   | Fix runtime exceptions in method       |
+| Code          | Severity | Description            | Solution                         |
+| ------------- | -------- | ---------------------- | -------------------------------- |
+| `COMPTIME016` | ❌ Error | Method execution error | Fix runtime exceptions in method |
 
 #### Execution Error Examples
 
 ```csharp
-// ❌ COMPTIME302: Method execution error
+// ❌ COMPTIME016: Method execution error
 [CompileTime]
 public static int MethodWithException()
 {
-    throw new InvalidOperationException("This will cause COMPTIME302");
+    throw new InvalidOperationException("This will cause COMPTIME016");
     return 42;
 }
 
@@ -190,48 +201,20 @@ public static int SafeMethod()
 }
 ```
 
-```csharp
-// ❌ COMPTIME301: Execution timeout
-[CompileTime]
-public static int TimeoutMethod()
-{
-    for (int i = 0; i < int.MaxValue; i++)
-    {
-        // This will timeout
-        Math.Sqrt(i);
-    }
-    return 42;
-}
-
-// ✅ Solution:
-[CompileTime(TimeoutMs = 10000)] // Increase timeout
-public static int OptimizedMethod()
-{
-    // Use reasonable limits
-    for (int i = 0; i < 1000; i++)
-    {
-        Math.Sqrt(i);
-    }
-    return 42;
-}
-```
-
 ---
 
-## 🔧 Generator Diagnostics (COMPTIME901-999)
+## 🔧 Generator Errors (COMPTIME021-025)
 
 ### Source Generation and Compilation Issues
 
-| Code          | Severity | Description                  | Solution                             |
-| ------------- | -------- | ---------------------------- | ------------------------------------ |
-| `COMPTIME901` | ❌ Error | Source generation error      | Check generator logs and file access |
-| `COMPTIME997` | 💡 Info  | Performance report generated | Report successfully created          |
-| `COMPTIME998` | 💡 Info  | CompileTime summary          | Build summary information            |
+| Code          | Severity | Description             | Solution                             |
+| ------------- | -------- | ----------------------- | ------------------------------------ |
+| `COMPTIME021` | ❌ Error | Source generation error | Check generator logs and file access |
 
 #### Generator Error Examples
 
 ```csharp
-// ❌ COMPTIME901: Source generation error
+// ❌ COMPTIME021: Source generation error
 // Usually caused by:
 // 1. Missing interceptor configuration
 // 2. File access issues
@@ -247,6 +230,17 @@ public static int OptimizedMethod()
   <InterceptorsNamespaces>$(InterceptorsNamespaces);CompileTime</InterceptorsNamespaces>
 </PropertyGroup>
 ```
+
+---
+
+## 📊 Informational Messages (COMPTIME026-030)
+
+### Build Reports and Summaries
+
+| Code          | Severity | Description                  | Solution                    |
+| ------------- | -------- | ---------------------------- | --------------------------- |
+| `COMPTIME026` | 💡 Info  | Performance report generated | Report successfully created |
+| `COMPTIME027` | 💡 Info  | CompileTime summary          | Build summary information   |
 
 ---
 
@@ -297,7 +291,7 @@ public static int OptimizedMethod()
 <CompileTimeEnabled Condition="'$(Configuration)' == 'Debug'">false</CompileTimeEnabled>
 ```
 
-#### 3. **COMPTIME901 errors**
+#### 3. **COMPTIME021 errors**
 
 **Symptoms:**
 
@@ -316,7 +310,7 @@ public static int SimpleMethod() => 42; // ✅ Good
 public static T GenericMethod<T>() => default(T); // ❌ May cause issues
 ```
 
-#### 4. **Performance warnings (COMPTIME012)**
+#### 4. **Performance warnings (COMPTIME006)**
 
 **Symptoms:**
 

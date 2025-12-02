@@ -3,14 +3,15 @@ using Corsinvest.Fx.CompileTime;
 namespace Corsinvest.Fx.Examples;
 
 /// <summary>
-/// Example 10: CompileTime Basics
-///
+/// <para>Example 10: CompileTime Basics</para>
+/// <para>
 /// Demonstrates compile-time execution of methods:
 /// - Simple calculations (Fibonacci, Factorial, Primes)
 /// - Async methods
 /// - Cache strategies
 /// - Performance monitoring
 /// - Timeout handling
+/// </para>
 /// </summary>
 public static class CompileTimeBasics
 {
@@ -46,7 +47,7 @@ public static class CompileTimeBasics
         Console.WriteLine($"  Async build info: {asyncInfo}");
     }
 
-    [CompileTime(PerformanceWarningThresholdMs = 5000)] // Fibonacci is intentionally slow
+    [CompileTime(PerformanceWarningThresholdMs = 500)] // Fibonacci is intentionally slow
     public static int CalculateFibonacci() => Fibonacci(10);
 
     [CompileTime]

@@ -2,17 +2,20 @@
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <PropertyGroup>
-    <CompileTimeTasksAssembly>$(MSBuildThisFileDirectory)bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Tasks.dll</CompileTimeTasksAssembly>
-    <CompileTimeGeneratorPath>$(MSBuildThisFileDirectory)..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Generator.exe</CompileTimeGeneratorPath>
+    <!-- Use net9.0 for development (best compatibility with Visual Studio MSBuild) -->
+    <!-- Ensure proper path resolution for development builds -->
+    <CompileTimeTasksAssembly>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Tasks.dll'))</CompileTimeTasksAssembly>
+    <CompileTimeGeneratorPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Generator.exe'))</CompileTimeGeneratorPath>
   </PropertyGroup>
 
   <UsingTask TaskName="Corsinvest.Fx.CompileTime.Tasks.CompileTimeTask"
              AssemblyFile="$(CompileTimeTasksAssembly)"
+             Runtime="Net"
              Condition="Exists('$(CompileTimeTasksAssembly)')" />
 
   <Target Name="CompileTimeExecution"
           BeforeTargets="CoreCompile"
-          Condition="'$(CompileTimeEnabled)' == 'true' and '@(Compile)' != '' and Exists('$(CompileTimeTasksAssembly)')">
+          Condition="'$(CompileTimeEnabled)' == 'true' and '@(Compile)' != '' and '$(CompileTimeTasksAssembly)' != '' and Exists('$(CompileTimeTasksAssembly)')">
 
     <MakeDir Directories="$(IntermediateOutputPath)CompileTime\" />
 
@@ -31,9 +34,6 @@
       <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
     </CompileTimeTask>
 
-    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\obj\CompileTimeDiagnostics.json')">
-      <AdditionalFiles Include="$(MSBuildProjectDirectory)\obj\CompileTimeDiagnostics.json" />
-    </ItemGroup>
 
   </Target>
 

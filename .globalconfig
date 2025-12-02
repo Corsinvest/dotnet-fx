@@ -1,0 +1,4 @@
+is_global = true
+
+# CompileTime analyzer settings
+dotnet_diagnostic.COMPTIME006.severity = warning

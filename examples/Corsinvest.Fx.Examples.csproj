@@ -14,6 +14,14 @@
 
     <!-- Enable interceptors in CompileTime namespace -->
     <InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);CompileTime</InterceptorsPreviewNamespaces>
+
+    <!-- Ensure analyzers run on generated code -->
+    <RunAnalyzersDuringBuild>true</RunAnalyzersDuringBuild>
+    <RunAnalyzersDuringLiveAnalysis>true</RunAnalyzersDuringLiveAnalysis>
+
+    <!-- Disable MSBuild node reuse to avoid file locking during Task development -->
+    <!-- WARNING: This slows down builds but prevents DLL locking issues -->
+    <MSBuildDisableNodeReuse>true</MSBuildDisableNodeReuse>
   </PropertyGroup>
 
   <ItemGroup>

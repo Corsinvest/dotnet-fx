@@ -505,9 +505,9 @@ CompileTime can be configured via MSBuild properties in your `.csproj` file:
 **Description:** What to do when a method execution exceeds the timeout.
 
 **Values:**
-- `Skip` - Skip execution, use default value (no build error)
-- `Warning` - Show warning, use default value
-- `Error` - Fail the build with diagnostic `COMPTIME103`
+- `Skip` - Skip execution, use default value (no build error) - diagnostic `COMPTIME011`
+- `Warning` - Show warning, use default value - diagnostic `COMPTIME013`
+- `Error` - Fail the build - diagnostic `COMPTIME012`
 
 **Example:**
 ```xml

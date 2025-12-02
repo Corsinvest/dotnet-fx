@@ -1,0 +1,19 @@
+root = true
+
+[*.cs]
+# Enable CompileTime diagnostics
+dotnet_diagnostic.COMPTIME001.severity = error
+dotnet_diagnostic.COMPTIME002.severity = error
+dotnet_diagnostic.COMPTIME003.severity = warning
+dotnet_diagnostic.COMPTIME004.severity = error
+dotnet_diagnostic.COMPTIME005.severity = suggestion
+dotnet_diagnostic.COMPTIME006.severity = warning
+dotnet_diagnostic.COMPTIME011.severity = warning
+dotnet_diagnostic.COMPTIME012.severity = error
+dotnet_diagnostic.COMPTIME013.severity = warning
+dotnet_diagnostic.COMPTIME014.severity = warning
+dotnet_diagnostic.COMPTIME015.severity = error
+dotnet_diagnostic.COMPTIME016.severity = error
+dotnet_diagnostic.COMPTIME021.severity = error
+dotnet_diagnostic.COMPTIME026.severity = suggestion
+dotnet_diagnostic.COMPTIME027.severity = suggestion
