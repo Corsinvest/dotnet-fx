@@ -120,9 +120,15 @@ const string InvalidEmail = "not-an-email"; // ❌ Compile error!
 ## How It Works
 
 1. **Source Generator**: Analyzes `[CompileTime]` attributed methods
-2. **Evaluation**: Executes pure functions at compile-time
+2. **Evaluation**: Executes functions at compile-time with access to .NET BCL and same-class methods
 3. **Code Generation**: Generates constants with computed values
 4. **Analyzer**: Validates usage and catches errors
+
+### Important: Access Scope
+- ✅ **Accessible**: All .NET Base Class Library types (System.Security.Cryptography, System.Linq, etc.) and common namespaces (System, System.Collections.Generic, System.Threading.Tasks, etc.)
+- ✅ **Accessible**: All methods and members within the same class as the `[CompileTime]` method
+- ✅ **Accessible**: Additional namespaces based on project type (Microsoft.AspNetCore.*, System.Windows.*, etc.)
+- ❌ **Not Accessible**: Methods or classes from other classes in the same project
 
 ## ⚠️ Limitations
 
@@ -134,12 +140,13 @@ CompileTime has specific requirements and limitations to ensure compile-time exe
 - **Recursion** - Methods can call themselves
 - **LINQ and collections** - Full .NET BCL support
 - **Multiple parameters** - Any compile-time constant parameters
+- **.NET BCL classes** - All .NET Base Class Library types are accessible (e.g., SHA256, Encoding, etc.)
 
 ### ❌ Not Supported
 - **Generic methods** - Methods with type parameters like `Method<T>()` are not supported
 - **Instance methods** - Only `static` methods can use `[CompileTime]`
-- **Non-class types** - Records, structs, and interfaces are not supported
-- **External dependencies** - Only code within the same class is available to the Generator
+- **Non-class types** - Records, structs, and interfaces are not supported for `[CompileTime]` methods
+- **Cross-class dependencies** - Only code within the same class is available to the Generator (other classes in the same project may not be accessible)
 - **File I/O, network, database** - Pure functions only (no side effects)
 
 ### 📝 Examples
@@ -164,20 +171,25 @@ public static T Identity<T>(T value) => value;
 public static List<int> GetNumbers() => new() { 1, 2, 3 };
 ```
 
-#### ❌ Not Supported: External Dependencies
+#### ❌ Not Supported: Cross-Class Dependencies
 ```csharp
 public static class Config
 {
     public const int Value = 10;
 }
 
-// ❌ WARNING: Config.Value not available in Generator
+// ❌ WARNING: Config.Value not available in Generator (different class)
 [CompileTime]
 public static int GetConfigValue() => Config.Value;  // Will fail
 
-// ✅ OK: Self-contained method
-[CompileTime]
-public static int Calculate() => 10 * 2;
+// ✅ OK: Self-contained method in the same class
+public static class Calculator
+{
+    private const int ConfigValue = 10;
+
+    [CompileTime]
+    public static int GetConfigValue() => ConfigValue;  // ✅ OK
+}
 ```
 
 ### 🔍 Validation
@@ -299,13 +311,15 @@ Methods marked with `[CompileTime]` must follow these rules:
 ✅ **Allowed:**
 - Any return type (primitives, strings, classes, structs)
 - Recursion
-- Calling other `[CompileTime]` methods
-- LINQ, collections, most BCL types
+- Calling any methods within the same class (not just `[CompileTime]` methods)
+- LINQ, collections, all .NET Base Class Library (BCL) types
+- Access to all members within the same class
 
 ❌ **Not Allowed:**
 - File I/O (`File`, `Directory`)
 - Network operations (`HttpClient`, `Socket`)
 - Database access
+- External dependencies from other classes in the same project
 - Environment-dependent code (may work but not portable)
 
 ---
@@ -328,6 +342,14 @@ public static class Crypto
         return Convert.ToHexString(bytes);
     }
 
+    // Helper method in the same class - accessible to [CompileTime] methods
+    private static byte[] GenerateRandomBytes(int length)
+    {
+        var bytes = new byte[length];
+        RandomNumberGenerator.Fill(bytes);
+        return bytes;
+    }
+
     // Slow method - higher threshold, suppress warnings
     [CompileTime(
         Cache = CacheStrategy.Persistent,
@@ -335,13 +357,24 @@ public static class Crypto
         SuppressPerformanceWarnings = true)]
     public static string GenerateSalt(int iterations)
     {
-        var rng = RandomNumberGenerator.Create();
-        var salt = new byte[32];
-        rng.GetBytes(salt);
+        var salt = GenerateRandomBytes(32); // ✅ Accessing helper method in same class
+        var processedSalt = ProcessSalt(salt); // ✅ Also accessing other methods in same class
 
         // Expensive key derivation
-        using var pbkdf2 = new Rfc2898DeriveBytes(salt, salt, iterations);
+        using var pbkdf2 = new Rfc2898DeriveBytes(processedSalt, processedSalt, iterations);
         return Convert.ToBase64String(pbkdf2.GetBytes(32));
+    }
+
+    // Regular helper method in the same class - accessible to [CompileTime] methods
+    private static byte[] ProcessSalt(byte[] salt)
+    {
+        // Some processing logic
+        var processed = new byte[salt.Length];
+        for (int i = 0; i < salt.Length; i++)
+        {
+            processed[i] = (byte)(salt[i] ^ 0x55); // Example transformation
+        }
+        return processed;
     }
 
     // Never cache - always fresh
