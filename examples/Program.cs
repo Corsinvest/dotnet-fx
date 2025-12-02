@@ -17,6 +17,10 @@ OptionChaining.Run();
 ResultOfRecover.Run();
 await DeferAsync.Run();
 
+// CompileTime Examples
+CompileTimeBasics.Run();
+await CompileTimeBasics.RunAsync();
+
 Console.WriteLine("\n╔═══════════════════════════════════════════════════════════╗");
 Console.WriteLine("║                  All Examples Completed!                  ║");
 Console.WriteLine("╚═══════════════════════════════════════════════════════════╝");

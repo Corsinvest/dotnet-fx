@@ -2,10 +2,18 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+    <!-- CompileTime Configuration -->
+    <CompileTimeEnabled>true</CompileTimeEnabled>
+    <CompileTimeDebugMode>Files</CompileTimeDebugMode>
+    <CompileTimeReport>true</CompileTimeReport>
+
+    <!-- Enable interceptors in CompileTime namespace -->
+    <InterceptorsPreviewNamespaces>$(InterceptorsPreviewNamespaces);CompileTime</InterceptorsPreviewNamespaces>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,6 +21,13 @@
     <ProjectReference Include="..\src\Functional\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
 
     <ProjectReference Include="..\src\Corsinvest.Fx.Defer\Corsinvest.Fx.Defer.csproj" />
+
+    <ProjectReference Include="..\src\CompileTime\Corsinvest.Fx.CompileTime\Corsinvest.Fx.CompileTime.csproj" />
+    <ProjectReference Include="..\src\CompileTime\Corsinvest.Fx.CompileTime.Analyzers\Corsinvest.Fx.CompileTime.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <!-- Import CompileTime MSBuild Task from local project -->
+  <Import Project="..\src\CompileTime\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.Dev.targets"
+          Condition="Exists('..\src\CompileTime\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.Dev.targets')" />
 
 </Project>
