@@ -114,7 +114,7 @@ public class ResultOfTryTests
     [Fact]
     public async Task TryAsync_ThrowsImmediately_CatchesException()
     {
-        var result = await ResultOf.TryAsync<int>(async () =>
+        var result = await ResultOf.TryAsync(async () =>
         {
             throw new InvalidOperationException("Immediate throw");
 #pragma warning disable CS0162 // Unreachable code detected

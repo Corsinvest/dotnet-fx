@@ -543,7 +543,7 @@ public static class ResultOfExtensions
     /// </summary>
     public static Option<T> ToOption<T, E>(this ResultOf<T, E> result)
             => result.TryGetValue(out var value)
-            ? Option.Some<T>(value)
+            ? Option.Some(value)
             : Option.None<T>();
 
     // ============================================
