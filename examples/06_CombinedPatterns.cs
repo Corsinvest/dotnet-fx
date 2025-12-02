@@ -62,6 +62,7 @@ public static class CombinedPatterns
         // Step 2: If validation fails, short-circuit
         if (validationResult.IsFail)
         {
+            return ResultOf.Fail<RegisteredUser, RegistrationError>(RegistrationError.ValidationFailed);
         }
 
         var input = validationResult.GetValueOrThrow();
