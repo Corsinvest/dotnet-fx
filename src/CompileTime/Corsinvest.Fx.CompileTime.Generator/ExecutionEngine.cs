@@ -1,3 +1,4 @@
+using Corsinvest.Fx.CompileTime.Diagnostics;
 using Corsinvest.Fx.CompileTime.Models;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -22,8 +23,7 @@ internal class ExecutionEngine
         [ProjectType.Default] = []
     };
 
-    public async Task<CompileTimeResponse> ExecuteAsync(CompileTimeRequest request,
-                                                        CompileTimeRequest.Item item)
+    public async Task<CompileTimeResponse> ExecuteAsync(CompileTimeRequest request, CompileTimeRequest.Item item)
     {
         var stopwatch = Stopwatch.StartNew();
         AssemblyLoadContext? loadContext = null;
@@ -49,13 +49,12 @@ internal class ExecutionEngine
 
             var result = await ExecuteMethodAsync(methodInfo, ConvertParameters(methodInfo, item.Parameters)!, item.TimeoutMs);
             stopwatch.Stop();
-            long memoryAfter = GC.GetAllocatedBytesForCurrentThread();
+            var memoryAfter = GC.GetAllocatedBytesForCurrentThread();
 
-            var formattedValue = FormatValueAsLiteral(result, item.ReturnTypeFullName);
             return new()
             {
                 Success = true,
-                SerializedValue = formattedValue,
+                SerializedValue = FormatValueAsLiteral(result, item.ReturnTypeFullName),
                 ExecutionTimeMs = stopwatch.ElapsedMilliseconds,
                 MemoryFootprintBytes = GetMemoryFootprint(result, memoryAfter - memoryBefore),
                 InvocationId = item.InvocationId
@@ -68,6 +67,7 @@ internal class ExecutionEngine
             {
                 Success = false,
                 ErrorMessage = $"Method execution timed out after {item.TimeoutMs}ms",
+                ErrorCode = DiagnosticDescriptors.ExecutionTimeout.Id,
                 SerializedValue = GetDefaultValue(item.ReturnTypeFullName),
                 InvocationId = item.InvocationId
             };
@@ -79,7 +79,7 @@ internal class ExecutionEngine
             {
                 Success = false,
                 ErrorMessage = ex.ToString(),
-                ErrorCode = "COMPTIME302",
+                ErrorCode = DiagnosticDescriptors.ExecutionError.Id,
                 ExecutionTimeMs = stopwatch.ElapsedMilliseconds,
                 SerializedValue = GetDefaultValue(item.ReturnTypeFullName),
                 InvocationId = item.InvocationId
@@ -87,7 +87,12 @@ internal class ExecutionEngine
         }
         finally
         {
-            loadContext?.Unload();
+            if (loadContext != null)
+            {
+                loadContext.Unload();
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
         }
     }
 
@@ -106,8 +111,8 @@ internal class ExecutionEngine
 
             if (methodInfo.ReturnType.IsGenericType)
             {
-                var property = methodInfo.ReturnType.GetProperty("Result");
-                return property?.GetValue(task)!;
+                var property = methodInfo.ReturnType.GetProperty("Result") ?? throw new InvalidOperationException($"Task<T> type missing Result property: {methodInfo.ReturnType}");
+                return property.GetValue(task) ?? throw new InvalidOperationException("Task Result is null");
             }
 
             return null!;

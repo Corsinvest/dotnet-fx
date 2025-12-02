@@ -6,14 +6,16 @@ Complete guide to CompileTime diagnostic messages, diagnostic IDs, and troublesh
 
 ## 🔍 Diagnostic ID Categories
 
-CompileTime uses a systematic diagnostic ID structure:
+CompileTime uses consecutive diagnostic IDs for simplicity:
 
-| Range               | Category             | Description                              |
-| ------------------- | -------------------- | ---------------------------------------- |
-| **COMPTIME001-099** | Core Diagnostics     | Method validation and basic requirements |
-| **COMPTIME100-199** | Performance Diagnostics | Execution time and performance issues    |
-| **COMPTIME301-399** | Execution Diagnostics | Runtime execution failures               |
-| **COMPTIME901-999** | Generator Diagnostics | Source generation and compilation issues |
+| Range               | Category                    | Description                              |
+| ------------------- | --------------------------- | ---------------------------------------- |
+| **COMPTIME001-004** | Core Diagnostics            | Method validation and basic requirements |
+| **COMPTIME005-010** | Performance and Suggestions | Performance issues and optimization hints|
+| **COMPTIME011-015** | Timeout Handling            | Timeout behavior and execution limits    |
+| **COMPTIME016-020** | Execution Errors            | Runtime execution failures               |
+| **COMPTIME021-025** | Generator Errors            | Source generation and compilation issues |
+| **COMPTIME026-030** | Informational Messages      | Build reports and summaries              |
 
 ---
 

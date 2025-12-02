@@ -3,11 +3,12 @@ using Microsoft.CodeAnalysis;
 namespace Corsinvest.Fx.CompileTime.Diagnostics;
 
 /// <summary>
-/// Centralized collection of all diagnostic descriptors used by CompileTime analyzers and generators
+/// Centralized collection of all diagnostic descriptors used by CompileTime analyzers and generators.
+/// Diagnostics are numbered consecutively for simplicity.
 /// </summary>
 public static class DiagnosticDescriptors
 {
-    // COMPTIME001-099: Core analyzer errors
+    // COMPTIME001-004: Core analyzer errors
     public static readonly DiagnosticDescriptor MethodMustBeStatic = new(
         id: "COMPTIME001",
         title: "Method must be static",
@@ -44,9 +45,9 @@ public static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "CompileTime does not support methods with generic type parameters. Only generic return types are supported.");
 
-    // COMPTIME100-199: Performance and timeout warnings
+    // COMPTIME005-010: Performance and suggestions
     public static readonly DiagnosticDescriptor SuggestCompileTime = new(
-        id: "COMPTIME100",
+        id: "COMPTIME005",
         title: "Method could benefit from [CompileTime]",
         messageFormat: "Method '{0}' could benefit from compile-time execution. Consider adding [CompileTime] attribute.",
         category: "Performance",
@@ -55,7 +56,7 @@ public static class DiagnosticDescriptors
         description: "This method appears to return constant values or perform deterministic calculations that could be executed at compile-time.");
 
     public static readonly DiagnosticDescriptor SlowMethodExecution = new(
-        id: "COMPTIME101",
+        id: "COMPTIME006",
         title: "Slow compile-time method execution",
         messageFormat: "Method '{0}' took {1}ms, exceeding performance threshold of {2}ms",
         category: "CompileTime",
@@ -63,8 +64,9 @@ public static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "CompileTime method execution exceeded the configured performance threshold.");
 
+    // COMPTIME011-015: Timeout handling
     public static readonly DiagnosticDescriptor MethodExecutionSkippedTimeout = new(
-        id: "COMPTIME102",
+        id: "COMPTIME011",
         title: "Method execution skipped due to timeout",
         messageFormat: "Method '{0}' execution skipped after {1}ms timeout (behavior: Skip)",
         category: "CompileTime",
@@ -73,7 +75,7 @@ public static class DiagnosticDescriptors
         description: "Method execution was skipped due to timeout configuration.");
 
     public static readonly DiagnosticDescriptor MethodExecutionTimeoutError = new(
-        id: "COMPTIME103",
+        id: "COMPTIME012",
         title: "Method execution timeout error",
         messageFormat: "Method '{0}' execution failed after {1}ms timeout (behavior: Error)",
         category: "CompileTime",
@@ -82,7 +84,7 @@ public static class DiagnosticDescriptors
         description: "Method execution failed due to timeout and timeout behavior is set to Error.");
 
     public static readonly DiagnosticDescriptor MethodExecutionTimeoutWarning = new(
-        id: "COMPTIME104",
+        id: "COMPTIME013",
         title: "Method execution timeout warning",
         messageFormat: "Method '{0}' execution timed out after {1}ms, using default value (behavior: Warning)",
         category: "CompileTime",
@@ -91,7 +93,7 @@ public static class DiagnosticDescriptors
         description: "Method execution timed out and timeout behavior is set to Warning.");
 
     public static readonly DiagnosticDescriptor UnknownTimeoutBehavior = new(
-        id: "COMPTIME105",
+        id: "COMPTIME014",
         title: "Unknown timeout behavior",
         messageFormat: "Unknown timeout behavior '{0}', defaulting to Skip for method '{1}'",
         category: "CompileTime",
@@ -99,9 +101,18 @@ public static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "The specified timeout behavior is not recognized.");
 
-    // COMPTIME301-399: Execution errors
+    public static readonly DiagnosticDescriptor ExecutionTimeout = new(
+        id: "COMPTIME015",
+        title: "Method execution timeout",
+        messageFormat: "Method execution timed out: {0}",
+        category: "CompileTime",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "Method execution exceeded the configured timeout.");
+
+    // COMPTIME016-020: Execution errors
     public static readonly DiagnosticDescriptor ExecutionError = new(
-        id: "COMPTIME302",
+        id: "COMPTIME016",
         title: "Method execution error",
         messageFormat: "Method execution error: {0}",
         category: "CompileTime",
@@ -109,9 +120,9 @@ public static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "An error occurred during method execution.");
 
-    // COMPTIME901-999: Generator errors
+    // COMPTIME021-025: Generator errors
     public static readonly DiagnosticDescriptor SourceGenerationError = new(
-        id: "COMPTIME901",
+        id: "COMPTIME021",
         title: "Source generation error",
         messageFormat: "Failed to generate interceptors: {0}",
         category: "CompileTime",
@@ -119,9 +130,9 @@ public static class DiagnosticDescriptors
         isEnabledByDefault: true,
         description: "An error occurred during source code generation.");
 
-    // COMPTIME997-998: Informational messages
+    // COMPTIME026-030: Informational messages
     public static readonly DiagnosticDescriptor PerformanceReportGenerated = new(
-        id: "COMPTIME997",
+        id: "COMPTIME026",
         title: "Performance report generated",
         messageFormat: "📊 Performance report generated: {0}",
         category: "CompileTime",
@@ -130,7 +141,7 @@ public static class DiagnosticDescriptors
         description: "CompileTime performance report has been generated.");
 
     public static readonly DiagnosticDescriptor CompileTimeSummary = new(
-        id: "COMPTIME998",
+        id: "COMPTIME027",
         title: "CompileTime Summary",
         messageFormat: "✅ CompileTimeGenerator: Processed {0} method(s) - {1} successful, {2} errors",
         category: "CompileTime",

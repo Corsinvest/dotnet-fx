@@ -10,32 +10,22 @@ namespace Corsinvest.Fx.CompileTime.Models;
 /// </summary>
 internal class InvocationInfo
 {
+    private InvocationInfo(InvocationExpressionSyntax invocation, IMethodSymbol methodSymbol)
+    {
+        _invocation = invocation;
+        MethodSymbol = methodSymbol;
+        Parameters = ExtractParameterValues(invocation);
+    }
+
     private readonly InvocationExpressionSyntax _invocation;
-
-    public InvocationInfo(InvocationExpressionSyntax invocation, IMethodSymbol methodSymbol)
-    {
-        _invocation = invocation;
-        MethodSymbol = methodSymbol;
-        Parameters = ExtractParameterValues(invocation);
-        IsNet9OrGreater = false;
-    }
-
-    public InvocationInfo(InvocationExpressionSyntax invocation, IMethodSymbol methodSymbol, int version, string data)
-    {
-        _invocation = invocation;
-        MethodSymbol = methodSymbol;
-        Parameters = ExtractParameterValues(invocation);
-        IsNet9OrGreater = true;
-        InterceptableVersion = version;
-        InterceptableData = data;
-    }
 
     public IMethodSymbol MethodSymbol { get; }
     public string FilePath => _invocation.SyntaxTree.FilePath;
     public object[] Parameters { get; }
-    public bool IsNet9OrGreater { get; }
-    public int InterceptableVersion { get; }
-    public string InterceptableData { get; } = string.Empty;
+
+    // Optional properties for modern interceptor format (populated via object initializer when available)
+    public int InterceptableVersion { get; init; }
+    public string InterceptableData { get; init; } = string.Empty;
     public string InvocationId { get; } = Guid.NewGuid().ToString();
     public int Line => GetMethodNamePosition().Line;
     public int Character => GetMethodNamePosition().Character;
@@ -116,7 +106,7 @@ internal class InvocationInfo
 
             if (getInterceptableLocationMethod == null)
             {
-                // API not available - Roslyn version too old
+                // API not available - will use legacy format as fallback
                 return null;
             }
 
@@ -159,7 +149,11 @@ internal class InvocationInfo
 
         var interceptableLocation = TryGetInterceptableLocation(invocation, model);
         return interceptableLocation.HasValue
-                ? new(invocation, methodSymbol, interceptableLocation.Value.version, interceptableLocation.Value.data)
+                ? new(invocation, methodSymbol)
+                {
+                    InterceptableVersion = interceptableLocation.Value.version,
+                    InterceptableData = interceptableLocation.Value.data
+                }
                 : new(invocation, methodSymbol);
     }
 }

@@ -15,6 +15,7 @@ public class CompileTimeRequest
         public required List<string> MethodParameterTypeNames { get; set; } = [];
         public required object[] Parameters { get; set; }
         public int TimeoutMs { get; set; }
+        public int PerformanceWarningThresholdMs { get; set; }
         public required string ReturnTypeFullName { get; set; }
         public required string InvocationId { get; set; }
     }

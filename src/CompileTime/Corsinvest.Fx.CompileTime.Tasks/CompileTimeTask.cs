@@ -40,11 +40,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
     public string DebugMode { get; set; } = "None";
     [Output] public ITaskItem[] GeneratedFiles { get; set; } = [];
 
-    // Debug mode helpers
-    private bool ShouldWriteDebugFiles =>
-        DebugMode.Equals("Files", StringComparison.OrdinalIgnoreCase) ||
-        DebugMode.Equals("Verbose", StringComparison.OrdinalIgnoreCase);
-
+    // Debug mode helper
     private bool IsVerboseLogging =>
         DebugMode.Equals("Verbose", StringComparison.OrdinalIgnoreCase);
 
@@ -54,7 +50,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
         return ExecuteInternalAsync(CancellationToken.None).GetAwaiter().GetResult();
     }
 
-    private async System.Threading.Tasks.Task<bool> ExecuteInternalAsync(CancellationToken cancellationToken)
+    private async Task<bool> ExecuteInternalAsync(CancellationToken cancellationToken)
     {
         _cacheManager.SetProjectDir(ProjectDir);
         _cacheManager.Load();
@@ -132,7 +128,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
         }
     }
 
-    private async System.Threading.Tasks.Task<CSharpCompilation?> CreateCompilationAsync(CancellationToken cancellationToken)
+    private async Task<CSharpCompilation?> CreateCompilationAsync(CancellationToken cancellationToken)
     {
         Log.LogMessage("Creating compilation from source files...");
 
@@ -143,7 +139,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
             try
             {
                 var content = await File.ReadAllTextAsync(sourceFile.ItemSpec, cancellationToken);
-                var tree = CSharpSyntaxTree.ParseText(content, path: sourceFile.ItemSpec);
+                var tree = CSharpSyntaxTree.ParseText(content, path: sourceFile.ItemSpec, cancellationToken: cancellationToken);
                 syntaxTrees.Add(tree);
             }
             catch (Exception ex)
@@ -207,10 +203,11 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
                 }
             }
 
+            // Get invocations: both MemberAccess (Class.Method()) and direct calls (Method())
             var invocationNodes = root.DescendantNodes()
                                       .OfType<InvocationExpressionSyntax>()
-                                      .Where(a => a.Expression is MemberAccessExpressionSyntax memberAccess
-                                                    && memberAccess.Expression is IdentifierNameSyntax);
+                                      .Where(inv => inv.Expression is MemberAccessExpressionSyntax
+                                                 || inv.Expression is IdentifierNameSyntax);
 
             foreach (var invocationNode in invocationNodes)
             {
@@ -227,7 +224,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
         return (methods, invocations);
     }
 
-    private async System.Threading.Tasks.Task<List<ITaskItem>> GenerateInterceptorsAsync(List<IMethodSymbol> methods, List<InvocationInfo> invocations, CancellationToken cancellationToken)
+    private async Task<List<ITaskItem>> GenerateInterceptorsAsync(List<IMethodSymbol> methods, List<InvocationInfo> invocations, CancellationToken cancellationToken)
     {
         Log.LogMessage("Generating interceptor files...");
 
@@ -260,8 +257,9 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
             var methodSymbol = invocation.MethodSymbol;
             var attr = CompileTimeHelper.GetAttributes(methodSymbol);
             var timeoutMs = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.TimeoutMs), TimeoutMs);
+            var performanceThreshold = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.PerformanceWarningThresholdMs), new CompileTimeAttribute().PerformanceWarningThresholdMs);
 
-            var syntaxNode = methodSymbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+            var syntaxNode = methodSymbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax(cancellationToken);
             if (syntaxNode == null)
             {
                 Log.LogWarning("Could not find syntax node for method symbol {0}. Skipping invocation.", methodSymbol.Name);
@@ -321,37 +319,36 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
 
                         // Create a response from cache for interceptor generation
                         cacheHits[invocation.InvocationId] = new CompileTimeResponse
-                    {
-                        InvocationId = invocation.InvocationId,
-                        Success = entry.Success,
-                        SerializedValue = entry.SerializedValue,
-                        ErrorMessage = entry.ErrorMessage,
-                        ErrorCode = entry.ErrorCode,
-                        ExecutionTimeMs = entry.ExecutionTimeMs,
-                        MemoryFootprintBytes = entry.MemoryFootprintBytes,
-                    };
+                        {
+                            InvocationId = invocation.InvocationId,
+                            Success = entry.Success,
+                            SerializedValue = entry.SerializedValue,
+                            ErrorMessage = entry.ErrorMessage,
+                            ErrorCode = entry.ErrorCode,
+                            ExecutionTimeMs = entry.ExecutionTimeMs,
+                            MemoryFootprintBytes = entry.MemoryFootprintBytes,
+                        };
 
-                    // Add to performance collector
-                    var suppressWarnings = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.SuppressWarnings), new CompileTimeAttribute().SuppressWarnings);
-                    var performanceThreshold = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.PerformanceWarningThresholdMs), new CompileTimeAttribute().PerformanceWarningThresholdMs);
-                    var parametersTxt = string.Join(",", invocation.Parameters);
+                        // Add to performance collector
+                        var suppressWarnings = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.SuppressWarnings), new CompileTimeAttribute().SuppressWarnings);
+                        var parametersTxt = string.Join(",", invocation.Parameters);
 
-                    _performanceCollector?.Add(new()
-                    {
-                        ClassName = methodSymbol.ContainingType.Name,
-                        MethodName = methodSymbol.Name,
-                        Namespace = methodSymbol.ContainingNamespace.ToDisplayString(),
-                        Cache = cacheStrategy,
-                        ThresholdMs = performanceThreshold,
-                        WasSuppressed = suppressWarnings,
-                        Parameters = parametersTxt,
-                        ExecutionTimeMs = 0, // Cache hit = 0ms execution time
-                        MemoryFootprintBytes = entry.MemoryFootprintBytes,
-                        ErrorMessage = entry.ErrorMessage,
-                        ThresholdExceeded = false // Cache hits never exceed threshold
-                    });
+                        _performanceCollector?.Add(new()
+                        {
+                            ClassName = methodSymbol.ContainingType.Name,
+                            MethodName = methodSymbol.Name,
+                            Namespace = methodSymbol.ContainingNamespace.ToDisplayString(),
+                            Cache = cacheStrategy,
+                            ThresholdMs = performanceThreshold,
+                            WasSuppressed = suppressWarnings,
+                            Parameters = parametersTxt,
+                            ExecutionTimeMs = 0, // Cache hit = 0ms execution time
+                            MemoryFootprintBytes = entry.MemoryFootprintBytes,
+                            ErrorMessage = entry.ErrorMessage,
+                            ThresholdExceeded = false // Cache hits never exceed threshold
+                        });
 
-                    continue;
+                        continue;
                     }
                     else
                     {
@@ -378,6 +375,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
                     MethodParameterTypeNames = [.. methodSymbol.Parameters.Select(p => p.Type.ToDisplayString(_fullClrFormat))],
                     Parameters = invocation.Parameters,
                     TimeoutMs = timeoutMs == -1 ? TimeoutMs : timeoutMs,
+                    PerformanceWarningThresholdMs = performanceThreshold,
                     ReturnTypeFullName = methodSymbol.ReturnType.ToDisplayString(_fullClrFormat),
                     InvocationId = invocation.InvocationId
                 };
@@ -403,34 +401,32 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
             throw new FileNotFoundException($"Generator assembly not found at '{GeneratorAssemblyPath}'. Please check the 'GeneratorAssemblyPath' property in your project file.");
         }
 
-        // Serialize request to JSON
-        var requestJson = JsonSerializer.Serialize(request);
-
-        // Debug mode: write request JSON to file
-        if (ShouldWriteDebugFiles)
-        {
-            var debugRequestPath = Path.Combine(OutputPath, "debug_request.json");
-            await File.WriteAllTextAsync(debugRequestPath, requestJson, cancellationToken);
-            if (IsVerboseLogging)
-            {
-                Log.LogMessage(MessageImportance.High, "Debug: Request written to {0}", debugRequestPath);
-            }
-        }
+        // Serialize request to JSON (formatted for readability - minimal performance impact)
+        var requestJson = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = true });
 
         if (IsVerboseLogging)
         {
-            Log.LogMessage(MessageImportance.High, "Executing generator via stdin/stdout: dotnet \"{0}\"", GeneratorAssemblyPath);
+            Log.LogMessage(MessageImportance.High, "Executing generator via file: \"{0}\"", GeneratorAssemblyPath);
         }
+
+        var requestFile = Path.Combine(OutputPath, "debug_request.json");
+        var responseFile = Path.Combine(OutputPath, "debug_response.json");
 
         try
         {
-            var process = new System.Diagnostics.Process
+            await File.WriteAllTextAsync(requestFile, requestJson, cancellationToken);
+
+            // Use .exe directly if it exists, otherwise use dotnet + dll
+            var exePath = GeneratorAssemblyPath.Replace(".dll", ".exe");
+            var fileName = File.Exists(exePath) ? exePath : "dotnet";
+            var arguments = File.Exists(exePath) ? $"\"{requestFile}\"" : $"\"{GeneratorAssemblyPath}\" \"{requestFile}\"";
+
+            using var process = new System.Diagnostics.Process
             {
                 StartInfo = new()
                 {
-                    FileName = "dotnet",
-                    Arguments = $"\"{GeneratorAssemblyPath}\"",
-                    RedirectStandardInput = true,
+                    FileName = fileName,
+                    Arguments = arguments,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -440,44 +436,34 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
 
             process.Start();
 
-            // Write to stdin and close (must complete before reading outputs)
-            await process.StandardInput.WriteAsync(requestJson.AsMemory(), cancellationToken);
-            process.StandardInput.Close();
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
 
-            // Launch async read operations in parallel to avoid deadlock
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            process.WaitForExit();
 
-            // Wait for all read operations
-            await System.Threading.Tasks.Task.WhenAll(stdoutTask, stderrTask);
-
-            // Wait for process to exit
-            await process.WaitForExitAsync(cancellationToken);
-
-            var responseJson = await stdoutTask;
-            var stderr = await stderrTask;
+            // Log all output for debugging
+            if (!string.IsNullOrWhiteSpace(stdout))
+            {
+                Log.LogMessage(MessageImportance.High, "[Generator output]\n{0}", stdout);
+            }
+            if (!string.IsNullOrWhiteSpace(stderr))
+            {
+                Log.LogMessage(MessageImportance.High, "[Generator stderr]\n{0}", stderr);
+            }
 
             if (process.ExitCode != 0)
             {
                 Log.LogError("Generator process exited with code {0}.", process.ExitCode);
-                if (!string.IsNullOrWhiteSpace(stderr))
-                {
-                    Log.LogError("Generator stderr: {0}", stderr);
-                }
-
-                throw new InvalidOperationException($"Generator process failed. See build log for details.");
+                throw new InvalidOperationException($"Generator process failed with exit code {process.ExitCode}");
             }
 
-            // Debug mode: write response JSON to file
-            if (ShouldWriteDebugFiles)
+            // Read response from file
+            if (!File.Exists(responseFile))
             {
-                var debugResponsePath = Path.Combine(OutputPath, "debug_response.json");
-                await File.WriteAllTextAsync(debugResponsePath, responseJson, cancellationToken);
-                if (IsVerboseLogging)
-                {
-                    Log.LogMessage(MessageImportance.High, "Debug: Response written to {0}", debugResponsePath);
-                }
+                throw new FileNotFoundException($"Generator did not produce response file: {responseFile}");
             }
+
+            var responseJson = await File.ReadAllTextAsync(responseFile, cancellationToken);
 
             responses = JsonSerializer.Deserialize<List<CompileTimeResponse>>(responseJson) ?? [];
         }
@@ -485,6 +471,11 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
         {
             Log.LogError("Failed to execute generator: {0}", ex.Message);
             throw;
+        }
+        finally
+        {
+            // Files are kept for debugging (debug_request.json and debug_response.json)
+            // They get overwritten on next build, no cleanup needed
         }
 
         // Combine responses from generator with cache hits
@@ -642,7 +633,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
                     continue; // Skip this interceptor if response is missing
                 }
                 var executedValue = response.SerializedValue;
-                ProcessResponse(response, originalMethod, firstCall);
+                ProcessResponse(response, firstCall);
 
                 // Check if method returns void or plain Task (executed for side effects only)
                 if (returnType == "void")
@@ -807,26 +798,60 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
         }
     }
 
-    private static string GenerateInterceptsLocationAttribute(InvocationInfo call)
+    private string GenerateInterceptsLocationAttribute(InvocationInfo call)
     {
-        // .NET 9+ only: Use Roslyn's GetInterceptableLocation() API
-        // This generates the correct version/data format with xxHash128 checksum + byte offset
-        // Replaces the deprecated (string filePath, int line, int character) constructor
-        if (!call.IsNet9OrGreater || string.IsNullOrEmpty(call.InterceptableData))
+        // Prefer modern format when Roslyn API is available (detected via reflection)
+        // Modern format: version/data with xxHash128 checksum + byte offset
+        if (!string.IsNullOrEmpty(call.InterceptableData))
         {
-            throw new InvalidOperationException(
-                $"Cannot generate interceptor for '{call.MethodSymbol.Name}': " +
-                "GetInterceptableLocation() API not available. " +
-                "This feature requires .NET 9+ SDK with Roslyn 4.9+ (Microsoft.CodeAnalysis.CSharp >= 4.9.0). " +
-                "Please upgrade to .NET 9 SDK or newer.");
+            return $"""        [global::System.Runtime.CompilerServices.InterceptsLocation({call.InterceptableVersion}, "{call.InterceptableData}")]""";
         }
 
-        return $"""        [global::System.Runtime.CompilerServices.InterceptsLocation({call.InterceptableVersion}, "{call.InterceptableData}")]""";
+        // Fallback to legacy format (filePath, line, character) when API not available
+        // This format is deprecated but still works in .NET 9
+        var relativePath = GetRelativePathFromGenerated(call.FilePath);
+        return $"""        [global::System.Runtime.CompilerServices.InterceptsLocation(@"{relativePath}", {call.Line}, {call.Character})]""";
     }
 
-    private void ProcessResponse(CompileTimeResponse response, IMethodSymbol methodSymbol, InvocationInfo invocation)
+    private string GetRelativePathFromGenerated(string filePath)
     {
-        var attr = CompileTimeHelper.GetAttributes(methodSymbol);
+        try
+        {
+            // Normalize paths to avoid issues with different path separators
+            var generatedDir = Path.GetFullPath(OutputPath).Replace('\\', '/');
+            var sourceFile = Path.GetFullPath(filePath).Replace('\\', '/');
+
+            if (IsVerboseLogging)
+            {
+                Log.LogMessage(MessageImportance.Low, $"GetRelativePathFromGenerated: generatedDir = {generatedDir}");
+                Log.LogMessage(MessageImportance.Low, $"GetRelativePathFromGenerated: sourceFile = {sourceFile}");
+            }
+
+            // Use URI approach but ensure proper directory handling
+            if (!generatedDir.EndsWith("/")) { generatedDir += "/"; }
+
+            var relativeUri = new Uri(generatedDir).MakeRelativeUri(new Uri(sourceFile));
+            var relativePath = Uri.UnescapeDataString(relativeUri.ToString());
+
+            if (IsVerboseLogging)
+            {
+                Log.LogMessage(MessageImportance.Low, $"GetRelativePathFromGenerated: relativePath = {relativePath}");
+            }
+
+            // Ensure forward slashes for interceptor attributes
+            return relativePath.Replace('\\', '/');
+        }
+        catch (Exception ex)
+        {
+            Log.LogWarning($"Could not convert path {filePath} to relative: {ex.Message}. Using absolute path.");
+            // Return the absolute path as fallback - interceptors can handle absolute paths
+            return filePath.Replace('\\', '/');
+        }
+    }
+
+    private void ProcessResponse(CompileTimeResponse response, InvocationInfo invocation)
+    {
+        var attr = CompileTimeHelper.GetAttributes(invocation.MethodSymbol);
         var performanceThreshold = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.PerformanceWarningThresholdMs), new CompileTimeAttribute().PerformanceWarningThresholdMs);
         var suppressWarnings = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.SuppressWarnings), new CompileTimeAttribute().SuppressWarnings);
         var cacheStrategy = CompileTimeHelper.GetNamedArgumentValue(attr, nameof(CompileTimeAttribute.Cache), new CompileTimeAttribute().Cache);
@@ -840,36 +865,36 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
                 && !suppressWarnings && performanceThreshold > 0
                 && response.ExecutionTimeMs > performanceThreshold)
             {
-                AddDiagnostic(DiagnosticDescriptors.SlowMethodExecution, methodSymbol, [methodSymbol.Name, response.ExecutionTimeMs.ToString(), performanceThreshold.ToString()]);
-                Log.LogMessage(MessageImportance.High, "Performance warning: Method '{0}' took {1}ms (threshold: {2}ms)", methodSymbol.Name, response.ExecutionTimeMs, performanceThreshold);
+                AddDiagnostic(DiagnosticDescriptors.SlowMethodExecution, invocation.MethodSymbol, [invocation.MethodSymbol.Name, response.ExecutionTimeMs.ToString(), performanceThreshold.ToString()]);
+                Log.LogMessage(MessageImportance.High, "Performance warning: Method '{0}' took {1}ms (threshold: {2}ms)", invocation.MethodSymbol.Name, response.ExecutionTimeMs, performanceThreshold);
             }
         }
         else
         {
-            if (response.ErrorCode == "COMPTIME301") // Timeout
+            if (response.ErrorCode == DiagnosticDescriptors.ExecutionTimeout.Id) // Timeout
             {
                 var actualTimeoutMs = timeoutMs == -1 ? TimeoutMs : timeoutMs;
                 switch (TimeoutBehavior.ToLowerInvariant())
                 {
-                    case "skip": AddDiagnostic(DiagnosticDescriptors.MethodExecutionSkippedTimeout, methodSymbol, [methodSymbol.Name, actualTimeoutMs.ToString()]); break;
+                    case "skip": AddDiagnostic(DiagnosticDescriptors.MethodExecutionSkippedTimeout, invocation.MethodSymbol, [invocation.MethodSymbol.Name, actualTimeoutMs.ToString()]); break;
                     case "error":
-                    case "fail": AddDiagnostic(DiagnosticDescriptors.MethodExecutionTimeoutError, methodSymbol, [methodSymbol.Name, actualTimeoutMs.ToString()]); break;
+                    case "fail": AddDiagnostic(DiagnosticDescriptors.MethodExecutionTimeoutError, invocation.MethodSymbol, [invocation.MethodSymbol.Name, actualTimeoutMs.ToString()]); break;
                     case "warning":
-                    case "warn": AddDiagnostic(DiagnosticDescriptors.MethodExecutionTimeoutWarning, methodSymbol, [methodSymbol.Name, actualTimeoutMs.ToString()]); break;
-                    default: AddDiagnostic(DiagnosticDescriptors.UnknownTimeoutBehavior, methodSymbol, [TimeoutBehavior, methodSymbol.Name]); break;
+                    case "warn": AddDiagnostic(DiagnosticDescriptors.MethodExecutionTimeoutWarning, invocation.MethodSymbol, [invocation.MethodSymbol.Name, actualTimeoutMs.ToString()]); break;
+                    default: AddDiagnostic(DiagnosticDescriptors.UnknownTimeoutBehavior, invocation.MethodSymbol, [TimeoutBehavior, invocation.MethodSymbol.Name]); break;
                 }
             }
             else
             {
-                AddDiagnostic(DiagnosticDescriptors.ExecutionError, methodSymbol, [response.ErrorMessage ?? "Unknown error"]);
+                AddDiagnostic(DiagnosticDescriptors.ExecutionError, invocation.MethodSymbol, [response.ErrorMessage ?? "Unknown error"]);
             }
         }
 
         _performanceCollector?.Add(new()
         {
-            ClassName = methodSymbol.ContainingType.Name,
-            MethodName = methodSymbol.Name,
-            Namespace = methodSymbol.ContainingNamespace.ToDisplayString(),
+            ClassName = invocation.MethodSymbol.ContainingType.Name,
+            MethodName = invocation.MethodSymbol.Name,
+            Namespace = invocation.MethodSymbol.ContainingNamespace.ToDisplayString(),
             ExecutionTimeMs = response.ExecutionTimeMs,
             ThresholdMs = performanceThreshold,
             Cache = cacheStrategy,
@@ -917,13 +942,31 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
                 namespace System.Runtime.CompilerServices
                 {
                     // InterceptsLocationAttribute for .NET 9+ interceptor support
-                    // Uses the stable version/data format (replaces deprecated string/int/int constructor)
+                    // Supports both legacy (filePath, line, character) and modern (version, data) formats
                     // See: https://github.com/dotnet/roslyn/blob/main/docs/features/interceptors.md
                     [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
-                    internal sealed class InterceptsLocationAttribute(int version, string data) : Attribute
+                    internal sealed class InterceptsLocationAttribute : Attribute
                     {
-                        public int Version { get; } = version;
-                        public string Data { get; } = data;
+                        // Legacy constructor for compatibility (deprecated but still works)
+                        public InterceptsLocationAttribute(string filePath, int line, int character)
+                        {
+                            FilePath = filePath;
+                            Line = line;
+                            Character = character;
+                        }
+
+                        // Modern constructor for .NET 9+ (version/data format)
+                        public InterceptsLocationAttribute(int version, string data)
+                        {
+                            Version = version;
+                            Data = data;
+                        }
+
+                        public string? FilePath { get; }
+                        public int Line { get; }
+                        public int Character { get; }
+                        public int Version { get; }
+                        public string? Data { get; }
                     }
                 }
 

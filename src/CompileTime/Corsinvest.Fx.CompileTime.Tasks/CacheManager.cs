@@ -10,8 +10,9 @@ internal class CacheManager
     public string Version { get; set; } = "1.0";
     public Dictionary<string, Entry> Entries { get; set; } = [];
 
-    private volatile bool _isDirty;
+    private bool _isDirty;
     private readonly object _lockObject = new();
+    private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
     public void SetProjectDir(string projectDir) => FileName = Path.Combine(projectDir, "obj", "CompileTimeCache.json");
 
@@ -26,33 +27,66 @@ internal class CacheManager
 
     public void Load()
     {
-        if (File.Exists(FileName))
+        try
         {
-            var data = JsonSerializer.Deserialize<CacheManager>(File.ReadAllText(FileName));
+            if (!File.Exists(FileName)) { return; }
+
+            var json = File.ReadAllText(FileName);
+            var data = JsonSerializer.Deserialize<CacheManager>(json);
+
             if (data != null && data.Version == Version)
             {
-                Entries = data.Entries ?? [];
-                Version = data.Version;
+                lock (_lockObject)
+                {
+                    Entries = data.Entries ?? [];
+                    Version = data.Version;
+                }
             }
+        }
+        catch (Exception)
+        {
         }
     }
 
     public void Save()
     {
+        Dictionary<string, Entry>? entriesToSave = null;
+
         lock (_lockObject)
         {
             if (!_isDirty) { return; }
 
-            var cacheToSave = new CacheManager
+            entriesToSave = Entries
+                .Where(a => a.Value.Persistent)
+                .ToDictionary(a => a.Key, kvp => kvp.Value);
+
+            _isDirty = false;
+        }
+
+        try
+        {
+
+            var directory = Path.GetDirectoryName(FileName);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var json = JsonSerializer.Serialize(new CacheManager
             {
                 FileName = FileName,
                 CreatedAt = CreatedAt,
                 Version = Version,
-                Entries = Entries.Where(a => a.Value.Persistent).ToDictionary(a => a.Key, kvp => kvp.Value)
-            };
-
-            File.WriteAllText(FileName, JsonSerializer.Serialize(cacheToSave, new JsonSerializerOptions { WriteIndented = true }));
-            _isDirty = false;
+                Entries = entriesToSave
+            }, _jsonOptions);
+            File.WriteAllText(FileName, json);
+        }
+        catch (Exception)
+        {
+            lock (_lockObject)
+            {
+                _isDirty = true;
+            }
         }
     }
 

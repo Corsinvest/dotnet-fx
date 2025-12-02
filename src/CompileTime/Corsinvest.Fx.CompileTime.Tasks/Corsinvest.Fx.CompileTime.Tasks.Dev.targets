@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <CompileTimeTasksAssembly>$(MSBuildThisFileDirectory)bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Tasks.dll</CompileTimeTasksAssembly>
+    <CompileTimeGeneratorPath>$(MSBuildThisFileDirectory)..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net9.0\Corsinvest.Fx.CompileTime.Generator.exe</CompileTimeGeneratorPath>
+  </PropertyGroup>
+
+  <UsingTask TaskName="Corsinvest.Fx.CompileTime.Tasks.CompileTimeTask"
+             AssemblyFile="$(CompileTimeTasksAssembly)"
+             Condition="Exists('$(CompileTimeTasksAssembly)')" />
+
+  <Target Name="CompileTimeExecution"
+          BeforeTargets="CoreCompile"
+          Condition="'$(CompileTimeEnabled)' == 'true' and '@(Compile)' != '' and Exists('$(CompileTimeTasksAssembly)')">
+
+    <MakeDir Directories="$(IntermediateOutputPath)CompileTime\" />
+
+    <CompileTimeTask
+      SourceFiles="@(Compile)"
+      ProjectDir="$(MSBuildProjectDirectory)"
+      GeneratorAssemblyPath="$(CompileTimeGeneratorPath)"
+      References="@(ReferencePath)"
+      OutputPath="$(IntermediateOutputPath)CompileTime"
+      TimeoutMs="$(CompileTimeTimeout)"
+      TimeoutBehavior="$(CompileTimeBehaviorOnTimeout)"
+      CompileTimeEnabled="$(CompileTimeEnabled)"
+      GenerateReport="$(CompileTimeReport)"
+      DebugMode="$(CompileTimeDebugMode)">
+      <Output TaskParameter="GeneratedFiles" ItemName="Compile" />
+      <Output TaskParameter="GeneratedFiles" ItemName="FileWrites" />
+    </CompileTimeTask>
+
+    <ItemGroup Condition="Exists('$(MSBuildProjectDirectory)\obj\CompileTimeDiagnostics.json')">
+      <AdditionalFiles Include="$(MSBuildProjectDirectory)\obj\CompileTimeDiagnostics.json" />
+    </ItemGroup>
+
+  </Target>
+
+</Project>
