@@ -15,6 +15,11 @@ namespace Corsinvest.Fx.CompileTime.Tasks;
 
 public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
 {
+    private static JsonSerializerOptions jsonSerializerOptions = new()
+    {
+        WriteIndented = true
+    };
+
     private static readonly SymbolDisplayFormat _fullClrFormat = new(
         globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Omitted,
         typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
@@ -44,11 +49,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
     private bool IsVerboseLogging =>
         DebugMode.Equals("Verbose", StringComparison.OrdinalIgnoreCase);
 
-    public override bool Execute()
-    {
-        // MSBuild Task.Execute() must be sync, but we can run async code using GetAwaiter().GetResult()
-        return ExecuteInternalAsync(CancellationToken.None).GetAwaiter().GetResult();
-    }
+    public override bool Execute() => ExecuteInternalAsync(CancellationToken.None).GetAwaiter().GetResult();
 
     private async Task<bool> ExecuteInternalAsync(CancellationToken cancellationToken)
     {
@@ -375,7 +376,6 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
                     MethodParameterTypeNames = [.. methodSymbol.Parameters.Select(p => p.Type.ToDisplayString(_fullClrFormat))],
                     Parameters = invocation.Parameters,
                     TimeoutMs = timeoutMs == -1 ? TimeoutMs : timeoutMs,
-                    PerformanceWarningThresholdMs = performanceThreshold,
                     ReturnTypeFullName = methodSymbol.ReturnType.ToDisplayString(_fullClrFormat),
                     InvocationId = invocation.InvocationId
                 };
@@ -402,7 +402,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
         }
 
         // Serialize request to JSON (formatted for readability - minimal performance impact)
-        var requestJson = JsonSerializer.Serialize(request, new JsonSerializerOptions { WriteIndented = true });
+        var requestJson = JsonSerializer.Serialize(request, jsonSerializerOptions);
 
         if (IsVerboseLogging)
         {
@@ -785,10 +785,7 @@ public class CompileTimeTask : Microsoft.Build.Utilities.Task, IDisposable
 
             if (!string.IsNullOrEmpty(directory)) { Directory.CreateDirectory(directory); }
 
-            var json = JsonSerializer.Serialize(_diagnostics, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            var json = JsonSerializer.Serialize(_diagnostics, jsonSerializerOptions);
             await File.WriteAllTextAsync(diagnosticsFile, json, cancellationToken);
             Log.LogMessage(MessageImportance.Low, "Saved {0} diagnostics to {1}", _diagnostics.Count, diagnosticsFile);
         }
