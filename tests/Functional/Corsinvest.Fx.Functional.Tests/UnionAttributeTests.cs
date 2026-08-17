@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Corsinvest.Fx.Functional.Tests;
 
 public class UnionAttributeTests
@@ -29,5 +31,35 @@ public class UnionAttributeTests
     {
         var attr = new UnionAttribute();
         Assert.IsAssignableFrom<Attribute>(attr);
+    }
+
+    [Fact]
+    public void GenericUnionAttribute_ExistsForArities_One_To_Eight()
+    {
+        var assembly = typeof(UnionAttribute<>).Assembly;
+
+        for (var arity = 1; arity <= 8; arity++)
+        {
+            var name = $"Corsinvest.Fx.Functional.UnionAttribute`{arity}";
+            Assert.NotNull(assembly.GetType(name));
+        }
+    }
+
+    [Fact]
+    public void GenericUnionAttribute_TargetsClassesOnly_AndIsNotMultiple()
+    {
+        var usage = typeof(UnionAttribute<,>).GetCustomAttribute<AttributeUsageAttribute>();
+
+        Assert.NotNull(usage);
+        Assert.Equal(AttributeTargets.Class, usage!.ValidOn);
+        Assert.False(usage.AllowMultiple);
+    }
+
+    [Fact]
+    public void UnionCaseNameAttribute_CarriesTheOverrideName()
+    {
+        var attribute = new UnionCaseNameAttribute<string>("Text");
+
+        Assert.Equal("Text", attribute.Name);
     }
 }
