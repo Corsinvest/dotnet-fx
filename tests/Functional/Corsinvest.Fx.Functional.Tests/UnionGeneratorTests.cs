@@ -607,7 +607,12 @@ public class UnionGeneratorTests
         // emit a top-level PetUnionExtensions and collide on CS0101 unless the class name is
         // disambiguated by the containing-type chain. OuterA and OuterB have the same arity (both
         // non-generic) so this also confirms the containing type's own *name*, not just arity,
-        // feeds the disambiguation - GetArity alone would not be enough to tell them apart.
+        // feeds the disambiguation - GetArity alone would not be enough to tell them apart. This is
+        // a straightforward case: neither containing type's name could be confused with an
+        // arity-encoded segment of the other. See
+        // TwoSameNamedRoots_WithAliasingContainingTypeNames_UnionExtensionsClassesDoNotCollide for
+        // the case that actually depends on the encoding scheme, not just on some disambiguation
+        // existing.
         var diagnostics = CompileWithGenerator("""
             using Corsinvest.Fx.Functional;
             using System.Threading.Tasks;
@@ -637,6 +642,110 @@ public class UnionGeneratorTests
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
         Assert.DoesNotContain(diagnostics, d => d.Id == "CS0101");
+    }
+
+    [Fact]
+    public void TwoSameNamedRoots_WithAliasingContainingTypeNames_UnionExtensionsClassesDoNotCollide()
+    {
+        // Regression for a second code-review finding on the round-1 fix above: a first attempt at
+        // disambiguating {Root}UnionExtensions appended a bare "_{arity}" per containing-type
+        // segment (BuildExtensionsClassName's predecessor). That encoding is ambiguous as a plain
+        // C# identifier: a containing type literally named "Outer_1" and a *different*, generic
+        // containing type named "Outer<T>" (arity 1) both produced the identifier
+        // "Outer_1PetUnionExtensions" once concatenated with a root named Pet - CS0101. This test
+        // is the one that actually depends on the chosen encoding (BuildExtensionsClassName's
+        // length-prefixed N{len}_{name}A{arity}_ scheme): unlike
+        // TwoSameNamedRoots_InDifferentContainingTypes_UnionExtensionsClassesDoNotCollide above, it
+        // fails if that encoding regresses back to the bare "_{arity}" suffix.
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+            using System.Threading.Tasks;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial class Outer_1
+            {
+                public abstract partial record Pet : IUnion<Cat, Dog>;
+            }
+
+            public partial class Outer<T>
+            {
+                public abstract partial record Pet : IUnion<Cat, Dog>;
+            }
+
+            public static class Usage
+            {
+                public static Task<string> DescribeNonGeneric(Task<Outer_1.Pet> petTask)
+                    => petTask.MatchAsync(cat => cat.Name, dog => dog.Name);
+
+                public static Task<string> DescribeGeneric(Task<Outer<int>.Pet> petTask)
+                    => petTask.MatchAsync(cat => cat.Name, dog => dog.Name);
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.DoesNotContain(diagnostics, d => d.Id == "CS0101");
+    }
+
+    [Fact]
+    public void NestedRoot_WithContainingTypeParameterSameNameAsRootsOwn_RenamesTheShadowedOne()
+    {
+        // Regression for a third code-review finding: BuildQualifiedRootAndTypeParams's
+        // predecessor flat-concatenated every containing type's type parameter names with the
+        // root's own, without de-duplicating. Outer<T> containing a root ALSO declared as Pet<T> -
+        // legal C#, the inner T merely shadows the outer one (CS0693, a warning, not an error) -
+        // made the extension class try to declare "MatchAsync<T, T, TResult>": CS0692, duplicate
+        // type parameter. The two T's are genuinely different generic slots (Outer<int>.Pet<string>
+        // is a legal closed construction where they hold different types), so the fix renames only
+        // the later, shadowing occurrence rather than dropping it - this pins that
+        // Task<Outer<T>.Pet<T2>> (not Outer<T>.Pet<T>, and not merging to one T) is what actually
+        // gets generated and compiles.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial class Outer<T>
+            {
+                public abstract partial record Pet<T> : IUnion<Cat, Dog>;
+            }
+            """);
+
+        Assert.Contains("MatchAsync<T, T2, TResult>(", generated);
+        Assert.Contains("this Task<Outer<T>.Pet<T2>> task,", generated);
+
+        // Precisely "not the same name twice in a row" - "<T, T2" legitimately contains "<T, T"
+        // as a substring, so a naive Assert.DoesNotContain("<T, T", ...) would be a false
+        // positive here; check for the exact duplicate-declaration shape instead.
+        Assert.DoesNotContain("<T, T,", generated);
+        Assert.DoesNotContain("<T, T>", generated);
+
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+            using System.Threading.Tasks;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial class Outer<T>
+            {
+                public abstract partial record Pet<T> : IUnion<Cat, Dog>;
+            }
+
+            public static class Usage
+            {
+                // Outer<int>.Pet<string>: the outer slot (T=int) and inner slot (T=string) hold
+                // genuinely different types, which is exactly what a merged single T could not
+                // express.
+                public static Task<string> Describe(Task<Outer<int>.Pet<string>> petTask)
+                    => petTask.MatchAsync(cat => cat.Name, dog => dog.Name);
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.DoesNotContain(diagnostics, d => d.Id == "CS0692");
     }
 
     [Fact]

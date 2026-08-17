@@ -480,18 +480,10 @@ namespace Corsinvest.Fx.Functional
             sb.AppendLine("}");
         }
 
-        // The Task<TRoot> extension class is a separate top-level static class in the same
-        // namespace, not nested inside the ancestor chain re-opened above - so, unlike the bare
-        // `root` used inside that chain, it needs the containing types back in front of the name
-        // to still resolve to the same type (e.g. Outer.Pet, not just Pet). A generic containing
-        // type needs its own type parameters too (Outer<T>.Pet, not Outer.Pet) - dropping them
-        // produced CS0305 ("Outer<T> requires 1 type argument(s)") for any root nested inside a
-        // generic ancestor, exactly like the wrapper's own re-opening of that ancestor at line 424
-        // above already accounts for via containingType.TypeParameters.
-        var qualifiedRoot = string.Join(
-            ".",
-            info.ContainingTypes.Select(t => t.Name + t.TypeParameters).Append(root));
-        GenerateUnionExtensions(sb, info, qualified, qualifiedRoot);
+        // The Task<TRoot> extension class needs the containing types back in front of the root's
+        // name (e.g. Outer<T>.Pet, not just Pet) and its own type parameters declared, both worked
+        // out inside GenerateUnionExtensions itself - see its remarks for why.
+        GenerateUnionExtensions(sb, info, qualified);
 
         var arity = GetArity(info.TypeParameters);
 
@@ -619,6 +611,150 @@ namespace Corsinvest.Fx.Functional
     }
 
     /// <summary>
+    /// Splits a <c>"&lt;T, E&gt;"</c>-shaped type parameter list into its individual names, or an
+    /// empty array for a non-generic (empty) list.
+    /// </summary>
+    /// <param name="typeParameters">A type parameter list including angle brackets, or empty.</param>
+    private static string[] SplitTypeParams(string typeParameters)
+        => typeParameters.Length == 0
+            ? Array.Empty<string>()
+            : typeParameters.Trim('<', '>').Split(',').Select(p => p.Trim()).ToArray();
+
+    /// <summary>
+    /// Builds the <c>{Root}UnionExtensions</c> class's fully-qualified <c>Task&lt;...&gt;</c> type
+    /// argument (e.g. <c>Outer&lt;T&gt;.Pet&lt;T2&gt;</c>) and the flat, left-to-right list of type
+    /// parameters that must be declared on each of its <c>MatchAsync</c> overloads, walking the
+    /// containing-type chain outermost first and the root last.
+    /// </summary>
+    /// <remarks>
+    /// A generated wrapper (<c>public partial {Keyword} {Name}{TypeParameters} { ... }</c>, see
+    /// <see cref="GenerateUnion"/>) can rely on ordinary C# shadowing when an inner type parameter
+    /// reuses an outer one's name - <c>Outer&lt;T&gt; { Pet&lt;T&gt; { ... } }</c> compiles with
+    /// only a CS0693 warning, because the nesting itself disambiguates which <c>T</c> a reference
+    /// inside <c>Pet</c> means. The extension class has no such nesting to lean on: both type
+    /// parameters must become independent, separately-declared generic parameters on the very same
+    /// method, because a closed instantiation like <c>Outer&lt;int&gt;.Pet&lt;string&gt;</c> is
+    /// legal and binds the two slots to two different types - collapsing them to one shared name
+    /// would silently force every caller's outer and inner type argument to be identical, which is
+    /// wrong, not just differently spelled. So whenever a name has already been used by an earlier
+    /// (more outer) segment, this renames only the later, shadowing occurrence - by appending the
+    /// smallest integer suffix that is not already in use - before it is declared or referenced
+    /// anywhere, and substitutes that renamed name into the corresponding <c>&lt;...&gt;</c> slot
+    /// of the qualified type reference. The outer occurrence keeps its original name unchanged.
+    /// </remarks>
+    /// <param name="info">The union model supplying the root's own type parameters and its containing-type chain.</param>
+    private static (string QualifiedRoot, string[] TypeParams) BuildQualifiedRootAndTypeParams(UnionInfo info)
+    {
+        var used = new HashSet<string>();
+        var allTypeParams = new List<string>();
+        var segments = new List<string>();
+
+        void AddSegment(string name, string typeParameters)
+        {
+            var renamed = SplitTypeParams(typeParameters).Select(p =>
+            {
+                var candidate = p;
+                var suffix = 2;
+                while (!used.Add(candidate))
+                {
+                    candidate = p + suffix;
+                    suffix++;
+                }
+                return candidate;
+            }).ToArray();
+
+            allTypeParams.AddRange(renamed);
+            segments.Add(renamed.Length == 0 ? name : $"{name}<{string.Join(", ", renamed)}>");
+        }
+
+        foreach (var containingType in info.ContainingTypes)
+        {
+            AddSegment(containingType.Name, containingType.TypeParameters);
+        }
+
+        AddSegment(info.TypeName, info.TypeParameters);
+
+        return (string.Join(".", segments), allTypeParams.ToArray());
+    }
+
+    /// <summary>
+    /// Builds a collision-proof identifier for the <c>{Root}UnionExtensions</c> class from the
+    /// union root's containing-type chain and its own name.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The extension class is a top-level static class - unlike the generated wrapper, it is never
+    /// nested inside the root's containing types - so two roots of the same simple name nested in
+    /// two different containing types (e.g. two types both named <c>Pet</c>, one inside
+    /// non-generic <c>Outer</c> and one inside generic <c>Outer&lt;T&gt;</c>) would both try to
+    /// emit a top-level <c>PetUnionExtensions</c> unless the containing-type chain disambiguates
+    /// the name (CS0101 otherwise). Two containing types can only share a simple name in the same
+    /// scope by differing in arity - C# itself forbids two same-name-same-arity declarations in
+    /// one scope - so arity is the fact that needs encoding into the identifier.
+    /// </para>
+    /// <para>
+    /// A first attempt appended a bare <c>"_{arity}"</c> per segment (mirroring the convention
+    /// <see cref="BuildHintName"/> uses for generated file names). That is unsound as an
+    /// *identifier* encoding: nothing stops a real containing type from being named, say,
+    /// <c>Outer_1</c>, which after concatenation is indistinguishable from non-generic
+    /// <c>Outer</c> followed by the arity-1 marker for a *different* containing type also named
+    /// <c>Outer</c> - <c>class Outer_1 { record Pet }</c> and <c>class Outer&lt;T&gt; { record Pet
+    /// }</c> both produced <c>Outer_1PetUnionExtensions</c> (CS0101). File hint names
+    /// (<see cref="BuildHintName"/>) do not have this problem in practice: <c>AddSource</c> keys
+    /// hint names on the whole string as an opaque identity of the *union root*, not as a C#
+    /// identifier that must also stay distinct from every real declared name in the compilation,
+    /// and a colliding hint name would require a second root with the exact same namespace,
+    /// containing-type-name chain, and simple name - already excluded by
+    /// <see cref="DeduplicatePartialDeclarations"/> - rather than an unrelated same-named
+    /// containing type. Left alone here since fixing it would not be a contained change.
+    /// </para>
+    /// <para>
+    /// This instead length-prefixes every variable-length field of each *containing-type* segment
+    /// before concatenating: <c>N{len(Name)}_{Name}A{arity}_</c>, where the digits between
+    /// <c>N</c> and the first <c>_</c> give the exact character count of <c>Name</c> that
+    /// immediately follows (so a digit, letter, or underscore inside a containing type's own name
+    /// cannot be misread as part of the encoding - the length tells a reader exactly how many
+    /// characters to consume next, regardless of what they are), and the digits between <c>A</c>
+    /// and the following <c>_</c> give the arity. Decoded strictly left to right, the encoded
+    /// ancestor-chain prefix is unambiguous: two distinct sequences of (name, arity) pairs can
+    /// never encode to the same string, because at every point the next field's length is stated
+    /// before the field itself, so no encoded prefix is a prefix of a different decoding and no
+    /// field boundary can be misplaced.
+    /// </para>
+    /// <para>
+    /// The root's own name is appended plainly, not length-prefixed - it is always the last
+    /// segment, after every ancestor's unambiguous encoding, so two different roots can only ever
+    /// produce the same full class name if their encoded ancestor-chain prefixes are identical
+    /// (impossible for structurally different chains, per the paragraph above) AND their plain
+    /// root names are identical too - which is not two different roots colliding, it is the same
+    /// root name under the same containing-type chain, already excluded from ever producing two
+    /// separate <see cref="UnionInfo"/>s by <see cref="DeduplicatePartialDeclarations"/>. Keeping
+    /// the root's name plain also means the overwhelmingly common case - no containing types at
+    /// all - keeps its original, readable <c>{Root}UnionExtensions</c> name unchanged; only a
+    /// nested root pays for the encoding, and only in its ancestor segments.
+    /// </para>
+    /// <para>
+    /// (Neither this nor <see cref="BuildHintName"/>/<see cref="SanitizeHintNameSegment"/> defends
+    /// against an adversarial user hand-writing a type already named to match the encoding, e.g.
+    /// literally naming a class <c>N5_Outer...</c> - they only have to keep two legitimately
+    /// different union roots from aliasing, not resist deliberate spoofing.)
+    /// </para>
+    /// </remarks>
+    /// <param name="info">The union model supplying the root's own name and its containing-type chain.</param>
+    private static string BuildExtensionsClassName(UnionInfo info)
+    {
+        var sb = new StringBuilder();
+        foreach (var containingType in info.ContainingTypes)
+        {
+            sb.Append($"N{containingType.Name.Length}_{containingType.Name}A{GetArity(containingType.TypeParameters)}_");
+        }
+        sb.Append(info.TypeName);
+        sb.Append("UnionExtensions");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Appends the <c>{Root}UnionExtensions</c> static class: three <c>MatchAsync</c> overloads on
     /// <c>Task&lt;TRoot&gt;</c> so fluent async pipelines can match directly on a pending union
     /// without an intermediate <c>await</c> - async handlers returning <c>Task&lt;TResult&gt;</c>,
@@ -626,31 +762,30 @@ namespace Corsinvest.Fx.Functional
     /// overload just awaits the task and forwards to the matching instance member.
     /// </summary>
     /// <param name="sb">The source builder to append to.</param>
-    /// <param name="info">The union model supplying case names and the root's own type parameters.</param>
+    /// <param name="info">The union model supplying case names, the root's own type parameters, and its containing-type chain.</param>
     /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
-    /// <param name="root">The union root type name including type parameters.</param>
-    private static void GenerateUnionExtensions(StringBuilder sb,
-                                                UnionInfo info,
-                                                ImmutableArray<string> qualified,
-                                                string root)
+    private static void GenerateUnionExtensions(StringBuilder sb, UnionInfo info, ImmutableArray<string> qualified)
     {
         // The extension class is a top-level static class, never nested (see the name-collision
         // comment below), so it cannot lean on an enclosing generic type to bring a containing
         // type's own type parameters into scope the way the wrapper's re-opened ancestor chain
-        // does. Every type parameter that appears anywhere in qualifiedRoot - the root's own, AND
-        // each ancestor's (e.g. the T in Outer<T>.Pet) - must therefore be declared directly on
+        // does. Every type parameter that appears anywhere in the qualified root - the root's own,
+        // AND each ancestor's (e.g. the T in Outer<T>.Pet) - must therefore be declared directly on
         // each MatchAsync overload, outermost ancestor first, root last, plus TResult for the two
-        // overloads that need it. Missing the ancestors' parameters here previously left
-        // `this Task<Outer<T>.Pet> task` referencing an unbound T (CS0246).
-        static string[] SplitTypeParams(string typeParameters)
-            => typeParameters.Length == 0
-                ? Array.Empty<string>()
-                : typeParameters.Trim('<', '>').Split(',').Select(p => p.Trim()).ToArray();
-
-        var allTypeParams = info.ContainingTypes
-            .SelectMany(t => SplitTypeParams(t.TypeParameters))
-            .Concat(SplitTypeParams(info.TypeParameters))
-            .ToArray();
+        // overloads that need it.
+        //
+        // Two *different* type-parameter symbols can share a source name: an inner declaration is
+        // allowed to shadow an outer one (Outer<T> { Pet<T> { ... } } - legal C#, just a CS0693
+        // warning, because inside Pet<T> the outer T is genuinely unreachable). The wrapper's own
+        // re-opened Outer<T> { ... Pet<T> ... } block relies on exactly that shadowing and needs no
+        // help. The extension class cannot: nothing nests it, so both T's must become independent,
+        // separately-named generic parameters on the same method - Outer<int>.Pet<string> is a
+        // legal closed construction where the two slots hold different types, so collapsing them
+        // to one shared name would be wrong, not just differently spelled. BuildQualifiedRootAndTypeParams
+        // renames the second (inner) occurrence of a repeated name before it is ever declared or
+        // referenced, so `this Task<Outer<T>.Pet<T2>> task` - not <T, T> (CS0692) - is what actually
+        // gets emitted, and the Task<...> reference uses the same renamed T2 in the inner slot.
+        var (qualifiedRoot, allTypeParams) = BuildQualifiedRootAndTypeParams(info);
 
         string TypeParamList(bool withResult)
         {
@@ -659,29 +794,14 @@ namespace Corsinvest.Fx.Functional
             return list.Length == 0 ? string.Empty : $"<{list}>";
         }
 
-        // Prefix with the containing-type chain so two same-named nested roots in the same
-        // namespace (e.g. Outer1.Pet and Outer2.Pet) don't both try to emit a top-level
-        // PetUnionExtensions and collide (CS0101) - the extension class itself is never nested,
-        // unlike the wrapper types, so it has no other scoping to fall back on. An identifier
-        // cannot contain the angle brackets/commas of a type parameter list, so each segment's
-        // arity is appended instead (same "_{arity}" scheme BuildHintName already uses to keep
-        // generated file names distinct): Outer<T>.Pet and Outer<T, U>.Pet - or, degenerately, a
-        // non-generic Outer and a generic Outer<T> both containing a root named Pet - produce
-        // Outer_1PetUnionExtensions and Outer_2PetUnionExtensions (or OuterPetUnionExtensions vs
-        // Outer_1PetUnionExtensions), never the same identifier, because two containing types
-        // with the same simple name can only coexist in one scope by differing in arity.
-        var extensionsClassName = string.Concat(
-            info.ContainingTypes
-                .Select(t => t.Name + (GetArity(t.TypeParameters) > 0 ? $"_{GetArity(t.TypeParameters)}" : string.Empty))
-                .Append(info.TypeName))
-            + "UnionExtensions";
+        var extensionsClassName = BuildExtensionsClassName(info);
 
         sb.AppendLine($"public static class {extensionsClassName}");
         sb.AppendLine("{");
 
         // 1) Async handlers returning Task<TResult>
         sb.AppendLine($"    public static async Task<TResult> MatchAsync{TypeParamList(withResult: true)}(");
-        sb.AppendLine($"        this Task<{root}> task,");
+        sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
@@ -702,7 +822,7 @@ namespace Corsinvest.Fx.Functional
 
         // 2) Async handlers returning Task (void)
         sb.AppendLine($"    public static async Task MatchAsync{TypeParamList(withResult: false)}(");
-        sb.AppendLine($"        this Task<{root}> task,");
+        sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
@@ -723,7 +843,7 @@ namespace Corsinvest.Fx.Functional
 
         // 3) Sync handlers returning TResult
         sb.AppendLine($"    public static async Task<TResult> MatchAsync{TypeParamList(withResult: true)}(");
-        sb.AppendLine($"        this Task<{root}> task,");
+        sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
