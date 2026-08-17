@@ -86,4 +86,121 @@ public class UnionCoreTypesTests
 
         Assert.Equal("stop", result.Match(ok => "", fail => fail.ErrorValue));
     }
+
+    // ============================================
+    // Hand-written MatchAsync overloads (ResultOfExtensions.cs) - pins the contract for the
+    // TEMPORARY region that duplicates what the generator lost in c5f2ce2. Every overload must
+    // reach the correct handler for both cases; see ResultOf_InvalidUnionState_CannotBeConstructed
+    // for why the throw-on-default arm isn't independently testable.
+    // ============================================
+
+    [Fact]
+    public async Task ResultOf_InstanceVoidMatchAsync_ReachesOkHandler()
+    {
+        var result = ResultOf.Ok<int, string>(42);
+        var okReached = false;
+        var failReached = false;
+
+        await result.MatchAsync(
+            async ok => { await Task.Delay(1); okReached = true; },
+            async fail => { await Task.Delay(1); failReached = true; }
+        );
+
+        Assert.True(okReached);
+        Assert.False(failReached);
+    }
+
+    [Fact]
+    public async Task ResultOf_InstanceVoidMatchAsync_ReachesFailHandler()
+    {
+        var result = ResultOf.Fail<int, string>("boom");
+        var okReached = false;
+        var failReached = false;
+
+        await result.MatchAsync(
+            async ok => { await Task.Delay(1); okReached = true; },
+            async fail => { await Task.Delay(1); failReached = true; }
+        );
+
+        Assert.False(okReached);
+        Assert.True(failReached);
+    }
+
+    [Fact]
+    public async Task ResultOf_TaskMatchAsync_AsyncValueHandlers_ReachesBothCases()
+    {
+        var okTask = Task.FromResult(ResultOf.Ok<int, string>(42));
+        var failTask = Task.FromResult(ResultOf.Fail<int, string>("boom"));
+
+        var okValue = await okTask.MatchAsync(
+            async ok => { await Task.Delay(1); return ok.Value; },
+            async fail => { await Task.Delay(1); return -1; }
+        );
+        var failValue = await failTask.MatchAsync(
+            async ok => { await Task.Delay(1); return ""; },
+            async fail => { await Task.Delay(1); return fail.ErrorValue; }
+        );
+
+        Assert.Equal(42, okValue);
+        Assert.Equal("boom", failValue);
+    }
+
+    [Fact]
+    public async Task ResultOf_TaskMatchAsync_AsyncVoidHandlers_ReachesBothCases()
+    {
+        var okTask = Task.FromResult(ResultOf.Ok<int, string>(42));
+        var failTask = Task.FromResult(ResultOf.Fail<int, string>("boom"));
+        var okReached = false;
+        var failReached = false;
+
+        await okTask.MatchAsync(
+            async ok => { await Task.Delay(1); okReached = true; },
+            async fail => { await Task.Delay(1); }
+        );
+        await failTask.MatchAsync(
+            async ok => { await Task.Delay(1); },
+            async fail => { await Task.Delay(1); failReached = true; }
+        );
+
+        Assert.True(okReached);
+        Assert.True(failReached);
+    }
+
+    [Fact]
+    public async Task ResultOf_TaskMatchAsync_SyncHandlers_ReachesBothCases()
+    {
+        var okTask = Task.FromResult(ResultOf.Ok<int, string>(42));
+        var failTask = Task.FromResult(ResultOf.Fail<int, string>("boom"));
+
+        var okValue = await okTask.MatchAsync(ok => ok.Value, fail => -1);
+        var failValue = await failTask.MatchAsync(ok => "", fail => fail.ErrorValue);
+
+        Assert.Equal(42, okValue);
+        Assert.Equal("boom", failValue);
+    }
+
+    [Fact]
+    public void ResultOf_InvalidUnionState_CannotBeConstructed()
+    {
+        // ResultOf<T,E> is abstract with a private constructor; only the generator's own nested
+        // Ok/Fail sealed records (declared in the same generated partial) can call it. There is no
+        // public-API route - no reflection, no unsafe cast - that reaches a third subtype, so the
+        // `throw new InvalidOperationException("Invalid union state")` default arm in every
+        // Match/MatchAsync overload (generated and hand-written alike) is unreachable dead code
+        // through legitimate use. This test documents that fact rather than exercising the throw,
+        // per the reviewer's instruction not to fabricate a test that cannot fail.
+        //
+        // The only constructors present are the generator's own private ResultOf() and the
+        // compiler-synthesized protected copy constructor ResultOf(ResultOf<T,E>) that records
+        // require to support `with` on their sealed derived types - neither is callable from
+        // outside this type's own declaration, so nothing outside Ok/Fail can ever derive from it.
+        var resultOfType = typeof(ResultOf<int, string>);
+        var constructors = resultOfType.GetConstructors(System.Reflection.BindingFlags.Public
+                                                        | System.Reflection.BindingFlags.NonPublic
+                                                        | System.Reflection.BindingFlags.Instance);
+
+        Assert.True(resultOfType.IsAbstract);
+        Assert.DoesNotContain(constructors, ctor => ctor.IsPublic);
+        Assert.All(constructors, ctor => Assert.True(ctor.IsPrivate || ctor.IsFamily));
+    }
 }

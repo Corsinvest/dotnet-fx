@@ -253,8 +253,16 @@ public static class ResultOfExtensions
     }
 
     // ============================================
-    // Async Match (void)
+    // Async Match (void) + Task<ResultOf> overloads
     // ============================================
+    // TEMPORARY — these four methods duplicate members the union generator used to emit and lost
+    // in c5f2ce2 ("drive union generation from the IUnion interface"): the void-returning instance
+    // MatchAsync, and the {Root}UnionExtensions Task<TUnion> overloads (value-returning async,
+    // void async, and value-returning sync). They exist here only so ResultOf keeps its documented
+    // async API working. Delete this whole region once UnionGenerator emits them again for IUnion
+    // roots (plan 2026-08-17-union-marker-interface, Task 6) - keeping both would shadow the
+    // generated members. If you delete this region, keep the throw-on-invalid-state behaviour: it
+    // must match the generator's other Match/MatchAsync overloads exactly.
 
     /// <summary>
     /// Pattern-match with async handlers that produce no value.
@@ -274,6 +282,7 @@ public static class ResultOfExtensions
     {
         if (result.TryGetOk(out var ok)) { await onOk(ok); }
         else if (result.TryGetFail(out var fail)) { await onFail(fail); }
+        else { throw new InvalidOperationException("Invalid union state"); }
     }
 
     // ============================================
