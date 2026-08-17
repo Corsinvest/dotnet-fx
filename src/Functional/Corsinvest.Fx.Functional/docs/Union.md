@@ -51,6 +51,205 @@ var area = CalculateArea(circle); // 78.54
 
 The `Match()` method is **exhaustive** - you must handle all cases, or it won't compile.
 
+## The Generic Form (Union of T1 to T8)
+
+`[Union]` requires the cases to be declared *inside* the union - they exist only as part of it.
+`[Union<T1..T8>]` takes the opposite approach: the cases are ordinary, independently declared
+types, and the attribute just names the closed set.
+
+```csharp
+using Corsinvest.Fx.Functional;
+
+// Ordinary, standalone types - no attribute, no partial, reusable anywhere.
+public record CreditCard(string Number, string Cvv, DateTime Expiry);
+public record PayPal(string Email);
+public record BankTransfer(string Iban, string Bic);
+
+[Union<CreditCard, PayPal, BankTransfer>]
+public abstract partial record PaymentMethod;
+```
+
+The generator emits, per case, a `sealed partial record` wrapper nested inside the root:
+
+```csharp
+public sealed partial record PaymentMethod.CreditCard(CreditCard Value) : PaymentMethod;
+```
+
+plus an implicit conversion from the case type, an `Is{Case}` property, a `TryGet{Case}` method,
+and `Match`/`Match` (void)/`MatchAsync` overloads - the same member set `[Union]` generates, just
+built from external types instead of nested ones:
+
+```csharp
+PaymentMethod method = new CreditCard("4111-1111-1111-1111", "123", DateTime.UtcNow);
+                     // ^ implicit conversion from the case type
+
+var fee = method.Match(
+    onCreditCard: card => 0.029m,
+    onPayPal: payPal => 0.034m,
+    onBankTransfer: transfer => 0m
+);
+
+if (method.TryGetCreditCard(out var creditCard))
+{
+    Console.WriteLine(creditCard.Number);
+}
+
+var description = method switch
+{
+    PaymentMethod.CreditCard(var card) => $"Card ending in {card.Number[^4..]}",
+    PaymentMethod.PayPal(var payPal) => $"PayPal {payPal.Email}",
+    PaymentMethod.BankTransfer(var transfer) => $"Bank transfer to {transfer.Iban}"
+};
+```
+
+Note one difference from `[Union]`: the generic form does not generate the `Task<TUnion>`
+extension class (the fluent `someTask.MatchAsync(...)` shown in
+[Async Pattern Matching](#async-pattern-matching)) - only the instance `Match`/`MatchAsync`
+methods shown above. Everything else - `UNION004`/`005`/`006`/`007`, the closed hierarchy, the
+`switch` support - applies identically to both forms.
+
+**Case types can be almost anything**: classes, sealed classes, records, structs, record structs,
+enums, delegates, `string`, `int` and other primitives, arrays, and closed generics (`List<T>`,
+`Dictionary<K,V>`, and so on). Value-type cases are held in a typed field on their wrapper - a
+`struct Money { public decimal Amount; }` case ends up as `Root.Money.Value` of type `Money`, not
+`object` - so **nothing is boxed**, the same guarantee `[Union]` gives, extended to external value
+types.
+
+Two shapes do **not** work as case types today, both driven by plain C# rules rather than
+anything the generator controls:
+
+- **Interfaces** - the generator always emits an implicit conversion operator for each case, and
+  C# forbids user-defined conversions to or from an interface (`CS0552`). An interface case type
+  fails the build unconditionally.
+- **Named tuples** (`(int X, int Y)`) - a tuple with element names cannot appear as an attribute
+  type argument at all (`CS8970`); this is a general C# restriction on attributes, unrelated to
+  unions. An *unnamed* tuple, `(int, int)`, works fine.
+
+### Which form should I use?
+
+|  | `[Union]` (nested) | `[Union<T1..T8>]` (generic) |
+| --- | --- | --- |
+| Case types | exist only inside the union | ordinary, independently declared |
+| Reuse across unions | ❌ one union per case type, permanently | ✅ the same type can be a case in several unions |
+| Cases closing over the root's own type parameter | ✅ only form that can express this | ❌ **CS8968** - illegal, see below |
+| Declaration style | nested `partial record` per case | attribute type arguments + `[UnionCaseName<T>]` overrides |
+
+Reach for the **generic form** when the cases are types you would plausibly declare and reuse on
+their own - request/response payloads, domain entities, anything that exists independently of the
+union.
+
+Reach for the **nested form** when a case exists purely as part of the union, or - the one place
+the generic form cannot go at all - when a case needs to **close over the union root's own type
+parameter**. `Option<T>`'s `Some(T Value)` and `ResultOf<T, E>`'s `Ok(T Value)` / `Fail(E Error)`
+are exactly this shape:
+
+```csharp
+// This does NOT compile: error CS8968 - an attribute type argument may not reference the
+// decorated type's own type parameter.
+// [Union<Some<T>, None>]
+// public abstract partial record Option<T>;
+```
+
+`Some<T>` only exists as `Option<T>.Some`, so it can only be spelled with `T` still in scope -
+which is exactly what an attribute argument cannot do. There is no generator change that works
+around this; it is enforced by the compiler before the generator ever runs. That is why
+`Option<T>` and `ResultOf<T, E>` stay on `[Union]` (see [Option<T>](Option.md) and
+[ResultOf<T, E>](ResultOf.md)) - the two attributes are permanent alternatives, not a
+migration path from one to the other.
+
+### Wrapper names
+
+Each case gets a wrapper name, derived from the case type unless overridden. The rules, checked
+in order:
+
+1. **The case type's own short name**, by default - `CreditCard` → `PaymentMethod.CreditCard`.
+2. **Namespace-prefixed**, when two cases' short names collide - `Farm.Cat` and `Wild.Cat` both
+   start as `Cat`, so they become `FarmCat` and `WildCat`.
+3. **`ListOf`/`DictionaryOf`-style names for closed generics** - `List<string>` →
+   `ListOfString`, `Dictionary<string, int>` → `DictionaryOfStringInt32`.
+4. **`{Element}Array` for arrays** - `int[]` → `Int32Array`.
+5. **`TupleOf...` for (unnamed) tuples** - `(int, int)` → `TupleOfInt32Int32`.
+6. **CLR names, not keywords** - `int` → `Int32`, `string` → `String`, so the wrapper is always a
+   legal identifier.
+7. **`[UnionCaseName<T>("...")]` always wins** - an explicit override is applied before any of the
+   rules above are considered, for that case type.
+
+```csharp
+namespace Farm { public record Cat(string Name); }
+namespace Wild { public record Cat(string Species); }
+
+// Both named "Cat" - rule 2 (namespace prefix) resolves the collision automatically.
+[Union<Farm.Cat, Wild.Cat>]
+public abstract partial record Feline;
+// => Feline.FarmCat, Feline.WildCat
+
+// Overriding explicitly (rule 7) instead of relying on the namespace prefix:
+[Union<Farm.Cat, Wild.Cat>]
+[UnionCaseName<Farm.Cat>("Domestic")]
+[UnionCaseName<Wild.Cat>("Feral")]
+public abstract partial record Feline2;
+// => Feline2.Domestic, Feline2.Feral
+```
+
+If two cases still collide after the namespace prefix - most often because the exact same type
+is listed twice - the generator cannot invent a third name and reports **UNION008**:
+
+```csharp
+public record Cat(string Name);
+
+[Union<Cat, Cat>]                 // error UNION008: case types resolve to the same wrapper name
+public abstract partial record Pet;
+```
+
+#### Generic roots need explicit names
+
+On a **generic** root (`Box<T>`, not just `Box`), a wrapper name equal to its own case type's
+name is rejected differently: the nested wrapper `Box<T>.Cat` shares the attribute's own lookup
+scope, so it **shadows** the top-level `Cat` the attribute argument needs to resolve - and the
+compiler rejects the whole declaration with `CS8968`, even though `Cat` never mentions `T`.
+
+```csharp
+public record Cat(string Name);
+public record Dog(string Name);
+
+// error CS8968, even though neither Cat nor Dog mentions T:
+// the default wrapper name "Cat" shadows the case type "Cat" in the attribute's own scope.
+[Union<Cat, Dog>]
+public abstract partial record Box<T>;
+```
+
+**UNION010** catches this before it reaches the compiler's own, less helpful error, and names the
+fix:
+
+```csharp
+[Union<Cat, Dog>]
+[UnionCaseName<Cat>("CatCase")]   // required on a generic root
+[UnionCaseName<Dog>("DogCase")]
+public abstract partial record Box<T>;
+```
+
+With the overrides in place, `Box<T>` compiles and works like any other generic union:
+
+```csharp
+Box<int> box = new Cat("Whiskers");
+var name = box.Match(
+    onCatCase: cat => cat.Name,
+    onDogCase: dog => dog.Name
+);
+```
+
+#### `UNION009`: implicit conversions omitted for duplicate CLR types
+
+Two cases can have distinct wrapper names yet still erase to the *same* CLR type once generics
+and tuple element names are stripped away - for example two named tuples that both become
+`ValueTuple<int, int>`. The generator cannot emit two `implicit operator Root(ValueTuple<int,
+int>)` overloads (that is `CS0557`, ambiguous user-defined conversions), so when this happens it
+omits the implicit conversion for **every** case that shares the CLR type and reports
+**UNION009** instead - construct those wrappers directly with `new Root.CaseName(value)`.
+In practice this is hard to hit with hand-written code, because named tuples cannot appear as
+attribute type arguments at all (`CS8970`, above); it mainly guards against generic case types
+whose type arguments happen to collide after erasure.
+
 ## Switch Expressions
 
 Union cases are real nested types, so you can use a plain C# `switch` instead of `Match()`:
@@ -97,6 +296,10 @@ double CalculateArea(Shape shape) => shape switch
 The suppressions matter as much as the warning: `CS8509`, `IDE0010` and `IDE0072` all steer you
 toward the discard arm that hides future cases. On a closed union that arm is unreachable code,
 so the package stands those suggestions down and lets UNION004 speak instead.
+
+All four apply identically to `[Union<T1..T8>]` unions - the generic form emits the same sealed,
+closed hierarchy, so the same analyzers recognize it. See [Diagnostics](#diagnostics) for the
+generic-only diagnostics, `UNION008`-`UNION010`.
 
 Together they invert the default behaviour: the discard arm becomes unnecessary, and a missing case becomes loud.
 
@@ -220,7 +423,20 @@ public partial record Pet
 }
 ```
 
-C# 15 is a **type union**: it composes types that already exist independently.
+`[Union<T1..T8>]` narrows that gap: the cases are ordinary, independently declared types, and the
+attribute just names the closed set - the same composition C# 15 offers, kept inside this
+package's closed-hierarchy model:
+
+```csharp
+public record Cat(string Name);          // a normal, standalone type
+public record Dog(string Name);
+
+[Union<Cat, Dog>]
+public abstract partial record Pet;
+```
+
+C# 15 is a **type union**: it composes types that already exist independently, the same way, but
+with a different runtime shape underneath.
 
 ```csharp
 public record Cat(string Name);          // a normal, standalone type
@@ -265,40 +481,52 @@ allocates anyway. `[Union]` cases hold their data in typed fields, with no boxin
 fields - which the compiler then prefers over `Value`. That is the tagged-struct design written by
 hand; the `union` keyword gives you the `switch` syntax, not the storage.)
 
-**Async matching.** `MatchAsync` overloads and `Task<TUnion>` extensions are generated for you.
-`switch` is not awaitable, so the C# 15 model has no equivalent - you write that plumbing yourself.
+**Async matching.** `MatchAsync` overloads are generated for you on both forms; `[Union]` also
+generates `Task<TUnion>` extensions for fluent chaining (see [Which form should I use?](#which-form-should-i-use)
+for the one difference between the two). `switch` is not awaitable, so the C# 15 model has no
+equivalent - you write that plumbing yourself.
 
 **Available today**, on net8.0 and net9.0, with no preview SDK.
 
-### Where C# 15 is stronger
-
-**A type can belong to several unions.** `Cat` is an ordinary type, so it can appear in
-`union Pet(Cat, Dog)` and `union Animal(Cat, Cow)` at once. Inheritance allows only one base, so
-a `[Union]` case belongs to exactly one union - permanently.
+### Where C# 15 is still stronger
 
 **Ad hoc unions.** `(A or B or C) x = ...` composes a union inline, with no declaration. A source
-generator cannot offer that.
+generator cannot offer that, in either form.
 
-**Native and dependency-free** - language syntax, with IDE and debugger support built in.
+**Native and dependency-free** - language syntax, with IDE and debugger support built in, no
+package reference and no build-time source generator.
+
+A type belonging to several unions - the gap called out in earlier versions of this comparison -
+is no longer C# 15's alone: `[Union<T1..T8>]` gives this package the same composability, for cases
+that do not need to close over a generic root's own type parameter. `Cat` can be
+`[Union<Cat, Dog>]`'s `Pet` and `[Union<Cat, Cow>]`'s `Animal` at once, exactly like
+`union Pet(Cat, Dog)` and `union Animal(Cat, Cow)` would let it. The nested `[Union]` form keeps
+the older restriction - a case declared inside a union belongs to exactly that union, permanently
+- because that is what lets it close over the root's type parameter at all (see
+[Which form should I use?](#which-form-should-i-use)).
 
 ### Side by side
 
-| | `[Union]` | C# 15 `union` |
-| --- | --- | --- |
-| Invalid state | **impossible** | `default` has a null `Value` |
-| Boxing of value-type cases | **never** | always (unless you hand-write a non-boxing union) |
-| Indirection to reach the data | 1 hop | 2 hops (`Value`, then the object) |
-| Cases usable as types | ✅ `Pet.Cat` | ✅ standalone types |
-| Same type in several unions | ❌ | ✅ |
-| Ad hoc unions | ❌ | ✅ |
-| Async matching | ✅ `MatchAsync` | ❌ |
-| Exhaustive `switch` | ✅ via UNION004/005 | ✅ built into the compiler |
-| Available on | net8.0+ | .NET 11 |
+| | `[Union]` (nested) | `[Union<T1..T8>]` (generic) | C# 15 `union` |
+| --- | --- | --- | --- |
+| Invalid state | **impossible** | **impossible** | `default` has a null `Value` |
+| Boxing of value-type cases | **never** | **never** | always (unless you hand-write a non-boxing union) |
+| Indirection to reach the data | 1 hop | 1 hop | 2 hops (`Value`, then the object) |
+| Cases usable as types | ✅ `Pet.Cat` | ✅ `Pet.Cat`, plus the standalone `Cat` | ✅ standalone types |
+| Same type in several unions | ❌ | ✅ | ✅ |
+| Cases closing over the root's own type parameter | ✅ only form that can | ❌ CS8968 | n/a - not generic itself |
+| Ad hoc unions | ❌ | ❌ | ✅ |
+| Async matching | ✅ `MatchAsync` + `Task<TUnion>` extensions | ✅ `MatchAsync` (no `Task<TUnion>` extensions) | ❌ |
+| Exhaustive `switch` | ✅ via UNION004/005 | ✅ via UNION004/005 | ✅ built into the compiler |
+| Available on | net8.0+ | net8.0+ | .NET 11 |
 
-The trade is consistent: a closed hierarchy buys correctness (no invalid state, no boxing) at the
-cost of composability (one union per type, no ad hoc unions). Which side matters depends on what
-you are modelling - `Option<T>` and `ResultOf<T, E>` are exactly the case where an unrepresentable
-invalid state is worth more than reuse.
+Both attributes still buy the closed-hierarchy correctness C# 15's struct-backed union does not
+have (no invalid state, no boxing); the generic form adds most of C# 15's composability on top,
+while the nested form remains the only way to express a case that closes over the root's own type
+parameter. What is left, on either side, is ad hoc unions and native language syntax - and
+`Option<T>` / `ResultOf<T, E>` are exactly the case where the nested form's restriction (one union
+per case, permanently) is not a cost, because their cases were never meant to be reused outside
+them.
 
 ### Related: the `closed` modifier
 
@@ -808,7 +1036,9 @@ var result = await GetUserIdAsync()
 
 ## Generated Code
 
-The source generator creates `Match` methods and async extensions for your union type. For example:
+The source generator creates `Match` methods and async extensions for your union type. For example
+(this is the nested `[Union]` form - see [The Generic Form](#the-generic-form-union-of-t1-to-t8) for what
+`[Union<T1..T8>]` emits):
 
 ```csharp
 [Union]
@@ -944,10 +1174,15 @@ an `object?` (which allocates anyway).
 | `UNION005` | *(suppressor)* | Suppresses `CS8509` when every case is handled |
 | `UNION006` | *(suppressor)* | Suppresses `IDE0010` ("populate switch statement") when every case is handled |
 | `UNION007` | *(suppressor)* | Suppresses `IDE0072` ("populate switch expression") when every case is handled |
+| `UNION008` | Error | `[Union<T1..T8>]` case types resolve to the same wrapper name, even after namespace-prefix disambiguation |
+| `UNION009` | Warning | Two `[Union<T1..T8>]` cases share one CLR type once tuple/generic erasure is applied, so their implicit conversions were omitted |
+| `UNION010` | Warning | A generic root's default wrapper name shadows its own case type; add `[UnionCaseName<T>]` before the compiler reports `CS8968` |
 
 `UNION001`-`UNION003` are structural errors and cannot be configured away: without them the
-generator cannot emit valid code. `UNION004` is a normal analyzer rule and can be tuned through
-`.editorconfig`.
+generator cannot emit valid code. `UNION004` and `UNION008`-`UNION010` are normal analyzer rules
+and can be tuned through `.editorconfig`. `UNION008` is specific to `[Union<T1..T8>]`: nested
+`[Union]` cases are literal, distinct type names, so they cannot collide the way generated wrapper
+names can.
 
 ## See Also
 

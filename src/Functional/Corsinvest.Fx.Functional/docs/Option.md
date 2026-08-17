@@ -82,6 +82,10 @@ value.Match(
 `Option<T>` is built on `[Union]`, so `Some` and `None` are real nested types. A plain `switch`
 works as well as `Match()`:
 
+`[Union]` is one of two ways to declare a union in this package - `Option<T>` uses it because
+`Some<T>`'s case closes over `Option<T>`'s own type parameter, which is the one shape the other
+form, `[Union<T1..T8>]`, cannot express (see [the generic form](Union.md#the-generic-form-union-of-t1-to-t8)).
+
 ```csharp
 string Describe(Option<User> user) => user switch
 {

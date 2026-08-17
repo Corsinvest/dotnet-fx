@@ -209,6 +209,11 @@ decimal CalculateFee(PaymentMethod payment) => payment switch
 };
 ```
 
+Cases can also be external, independently declared types via `[Union<T1..T8>]`, so the same type
+can take part in more than one union - see the
+[Union Types guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#the-generic-form-union-of-t1-to-t8)
+for both forms.
+
 ### Option - Null Safety
 
 Eliminate null reference exceptions:

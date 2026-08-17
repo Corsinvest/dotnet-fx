@@ -68,6 +68,20 @@ double CalculateArea(Shape shape) => shape switch
 
 The same works for `Option<T>` and `ResultOf<T, E>`, which are unions themselves.
 
+Cases can also be **external, independently declared types** with `[Union<T1..T8>]`, so the same
+type can take part in more than one union - useful when the cases are plain data types you would
+declare anyway:
+
+```csharp
+public record CreditCard(string Number);
+public record PayPal(string Email);
+
+[Union<CreditCard, PayPal>]
+public abstract partial record PaymentMethod;
+
+PaymentMethod method = new CreditCard("4111-1111-1111-1111"); // implicit conversion
+```
+
 📖 **[Read the complete Union Types guide →](docs/Union.md)**
 
 ### Pipe - Universal Pipeline Pattern

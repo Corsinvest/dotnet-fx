@@ -42,6 +42,11 @@ result.Match(
 `ResultOf<T, E>` is built on `[Union]`, so `Ok` and `Fail` are real nested types. A plain `switch`
 works as well as `Match()`:
 
+`[Union]` is one of two ways to declare a union in this package - `ResultOf<T, E>` uses it because
+`Ok<T>`/`Fail<E>`'s cases close over `ResultOf<T, E>`'s own type parameters, which is the one shape
+the other form, `[Union<T1..T8>]`, cannot express (see
+[the generic form](Union.md#the-generic-form-union-of-t1-to-t8)).
+
 ```csharp
 string Describe(ResultOf<User, ValidationError> result) => result switch
 {
