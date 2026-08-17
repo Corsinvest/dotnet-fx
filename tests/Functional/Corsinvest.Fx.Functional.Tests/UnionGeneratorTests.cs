@@ -466,7 +466,8 @@ public class UnionGeneratorTests
     // attribute's own type-argument list in the SAME scope as the merged partial declaration's
     // nested wrapper, so a wrapper named "Cat" (the common case - a case type's default-derived
     // wrapper name equals its own simple name) shadowed the top-level Cat for the attribute's own
-    // lookup, and the compiler rejected it with CS8968. UNION010 exists to warn about exactly this.
+    // lookup, and the compiler rejected it with CS8968. UNION010 existed to warn about exactly
+    // this under the attribute form.
     //
     // With `: IUnion<Cat, Dog>` there is no attribute type-argument list to shadow: IUnion<...>'s
     // type arguments are resolved once, at the base-list position, before any nested wrapper type
@@ -474,20 +475,22 @@ public class UnionGeneratorTests
     // regression test for "fails to compile" has no interface-form equivalent: there is nothing
     // left to pin down.
     //
-    // KNOWN ISSUE this uncovered, reported rather than fixed here (outside this task's approved
-    // scope - flagged for the reviewer/next task rather than silently fixed): UNION010 still fires
-    // for this shape, but its message ("would shadow the case type in the attribute's own scope")
-    // is now a false positive - the code it warns about compiles cleanly. The two original
-    // UNION010 tests (Reports_UNION010_WhenGenericRootWouldShadowItsCaseType,
-    // DoesNotReport_UNION010_WhenGenericRootUsesExplicitCaseNames) are deliberately not ported: the
-    // first still passes for the wrong reason (the diagnostic fires, but not because the code would
-    // fail to compile), and porting it would cement a false positive as intended behavior.
+    // UNION010 (GenericRootNameShadowingDescriptor and the loop that reported it in
+    // UnionGenerator.GenerateUnion) has been removed entirely, because under the interface form
+    // its firing condition (a generic root's wrapper name equal to its case type's simple name)
+    // no longer indicates a real problem - the shape below compiles clean, 0 warnings, 0 errors -
+    // yet the diagnostic would still have fired on it as a false positive. Left in place, it would
+    // have raised a false warning on Option<T> itself once Option<T> migrates to
+    // [UnionCaseName<Some<int>>("Some")], which the build treats as an error via
+    // TreatWarningsAsErrors. This test remains as the regression proof that removing the
+    // diagnostic is safe: the shape below must compile cleanly and must NOT produce a UNION010
+    // diagnostic (which can no longer exist).
     [Fact]
     public void GenericRoot_DefaultWrapperNames_NoLongerShadowTheCaseType_UnlikeTheAttributeForm()
     {
         // The exact shape that produced CS8968 under [Union<Cat, Dog>] on Box<T>. Under
-        // : IUnion<Cat, Dog> it compiles - the bug UNION010 warns about no longer exists for this
-        // path, so the warning it still emits here is a false positive (see the note above).
+        // : IUnion<Cat, Dog> it compiles, and there is no UNION010 diagnostic anymore to false-fire
+        // on it - the diagnostic was removed (see the note above).
         var diagnostics = CompileWithGenerator("""
             using Corsinvest.Fx.Functional;
 
@@ -509,6 +512,7 @@ public class UnionGeneratorTests
             """);
 
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.DoesNotContain(diagnostics, d => d.Id == "UNION010");
     }
 
     [Fact]

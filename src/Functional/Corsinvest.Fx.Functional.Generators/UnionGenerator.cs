@@ -36,16 +36,6 @@ public class UnionGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
-    private static readonly DiagnosticDescriptor GenericRootNameShadowingDescriptor = new(
-        id: "UNION010",
-        title: "Generic union root needs distinct case names",
-        messageFormat: "Union '{0}' is generic, so case '{1}' needs an explicit wrapper name; "
-                     + "add [UnionCaseName<{1}>(\"{1}Case\")] because a nested type named '{1}' "
-                     + "would shadow the case type in the attribute's own scope",
-        category: "Design",
-        defaultSeverity: DiagnosticSeverity.Warning,
-        isEnabledByDefault: true);
-
     private static readonly DiagnosticDescriptor InterfaceCaseTypeDescriptor = new(
         id: "UNION012",
         title: "Union case type cannot be an interface",
@@ -410,26 +400,6 @@ namespace Corsinvest.Fx.Functional
 
             context.ReportDiagnostic(Diagnostic.Create(
                 DuplicateCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName, collidingCaseNames));
-        }
-
-        // A generic root's nested wrapper shares the attribute's own scope: if a wrapper name
-        // equals its case type's simple name, the merged partial declaration shadows the
-        // top-level case type for the attribute's own type-argument lookup, and the compiler
-        // rejects it with CS8968. Warn and name the fix (UnionCaseName<T>) rather than leaving
-        // the user with a bare, unexplained compiler error.
-        if (info.TypeParameters.Length > 0)
-        {
-            for (var i = 0; i < info.CaseTypes.Length; i++)
-            {
-                if (info.CaseNames[i] == info.CaseTypes[i].Name)
-                {
-                    context.ReportDiagnostic(Diagnostic.Create(
-                        GenericRootNameShadowingDescriptor,
-                        info.Location ?? Location.None,
-                        info.TypeName,
-                        info.CaseNames[i]));
-                }
-            }
         }
 
         var sb = new StringBuilder();
