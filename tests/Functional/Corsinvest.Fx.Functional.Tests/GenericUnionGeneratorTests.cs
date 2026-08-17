@@ -306,6 +306,84 @@ public class GenericUnionGeneratorTests
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
     }
 
+    [Fact]
+    public void Reports_UNION008_WhenTwoCasesCannotBeNamedApart()
+    {
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+
+            [Union<Cat, Cat>]
+            public abstract partial record Pet;
+            """);
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION008"));
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+    }
+
+    [Fact]
+    public void Reports_UNION009_AndOmitsConversions_WhenCasesShareOneClrType()
+    {
+        // (int X, int Y) and (int Row, int Col) are both ValueTuple<int,int>.
+        var source = """
+            using Corsinvest.Fx.Functional;
+
+            [Union<(int X, int Y), (int Row, int Col)>]
+            [UnionCaseName<(int X, int Y)>("Point")]
+            [UnionCaseName<(int Row, int Col)>("Cell")]
+            public abstract partial record Geo;
+            """;
+
+        var diagnostics = GetGeneratorDiagnostics(source);
+        Assert.Single(diagnostics.Where(d => d.Id == "UNION009"));
+
+        // Without conversions the generated code still compiles.
+        var generated = Generate(source);
+        Assert.DoesNotContain("implicit operator", generated);
+    }
+
+    [Fact]
+    public void Reports_UNION010_WhenGenericRootWouldShadowItsCaseType()
+    {
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            [Union<Cat, Dog>]
+            public abstract partial record Box<T>;
+            """);
+
+        var reported = diagnostics.Where(d => d.Id == "UNION010").ToList();
+
+        Assert.Equal(2, reported.Count);
+        Assert.Contains(reported, d => d.GetMessage().Contains("Cat"));
+        Assert.Contains(reported, d => d.GetMessage().Contains("Dog"));
+    }
+
+    [Fact]
+    public void DoesNotReport_UNION010_WhenGenericRootUsesExplicitCaseNames()
+    {
+        // GenericRoot_CarriesTypeParameters_ThroughGeneratedMembers relies on these overrides to
+        // compile at all (see the shadowing bug documented above Reports_UNION010...); confirm
+        // that using [UnionCaseName<T>] to pick distinct names also suppresses the diagnostic.
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            [Union<Cat, Dog>]
+            [UnionCaseName<Cat>("CatCase")]
+            [UnionCaseName<Dog>("DogCase")]
+            public abstract partial record Box<T>;
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Id == "UNION010"));
+    }
+
     // ---- infrastructure ----------------------------------------------------
 
     private static string Generate(string source)
@@ -314,6 +392,14 @@ public class GenericUnionGeneratorTests
 
         return string.Join("\n", trees.Select(t => t.ToString()));
     }
+
+    private static ImmutableArray<Diagnostic> GetGeneratorDiagnostics(string source)
+        => CSharpGeneratorDriver.Create(new UnionGenerator())
+            .RunGenerators(CreateCompilation(source))
+            .GetRunResult()
+            .Results
+            .SelectMany(r => r.Diagnostics)
+            .ToImmutableArray();
 
     private static ImmutableArray<Diagnostic> CompileWithGenerator(string source)
     {

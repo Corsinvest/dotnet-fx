@@ -34,6 +34,34 @@ public class UnionGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor CaseNameCollisionDescriptor = new(
+        id: "UNION008",
+        title: "Union case names collide",
+        messageFormat: "Union '{0}' has case types that resolve to the same wrapper name; "
+                     + "use [UnionCaseName<T>(\"...\")] to disambiguate",
+        category: "Design",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor DuplicateCaseTypeDescriptor = new(
+        id: "UNION009",
+        title: "Implicit conversions omitted",
+        messageFormat: "Union '{0}' has case types that share one CLR type, so implicit "
+                     + "conversions were not generated; construct the case wrappers directly",
+        category: "Design",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor GenericRootNameShadowingDescriptor = new(
+        id: "UNION010",
+        title: "Generic union root needs distinct case names",
+        messageFormat: "Union '{0}' is generic, so case '{1}' needs an explicit wrapper name; "
+                     + "add [UnionCaseName<{1}>(\"{1}Case\")] because a nested type named '{1}' "
+                     + "would shadow the case type in the attribute's own scope",
+        category: "Design",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
     /// <summary>
     /// Like <see cref="SymbolDisplayFormat.FullyQualifiedFormat"/>, but without
     /// <see cref="SymbolDisplayMiscellaneousOptions.UseSpecialTypes"/>: generated code needs the
@@ -579,8 +607,16 @@ namespace Corsinvest.Fx.Functional
         var overrides = ReadCaseNameOverrides(root);
         var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, out var hasNameCollision);
 
-        // Duplicate CLR types make duplicate conversion operators illegal (CS0557).
-        var distinctClrTypes = caseTypes.Distinct(SymbolEqualityComparer.Default).Count();
+        // Duplicate CLR types make duplicate conversion operators illegal (CS0557). Named tuples
+        // with different element names, e.g. (int X, int Y) and (int Row, int Col), are distinct
+        // to SymbolEqualityComparer but erase to the same metadata type ValueTuple<int, int>, so
+        // compare tuples by their underlying (unnamed) type instead of the tuple symbol itself.
+        var distinctClrTypes = caseTypes
+            .Select(t => t is INamedTypeSymbol { IsTupleType: true } tuple
+                ? tuple.TupleUnderlyingType ?? t
+                : t)
+            .Distinct(SymbolEqualityComparer.Default)
+            .Count();
 
         return new GenericUnionInfo(
             @namespace: root.ContainingNamespace.IsGlobalNamespace
@@ -625,9 +661,38 @@ namespace Corsinvest.Fx.Functional
     /// <param name="info">The resolved union model built by <see cref="BuildGenericUnionInfo"/>.</param>
     private static void GenerateGenericUnion(SourceProductionContext context, GenericUnionInfo info)
     {
-        // UNION008/UNION009 (unresolved name collisions) are reported by a later task; for now,
-        // simply skip generation so the union does not compile into a broken hierarchy.
-        if (info.HasNameCollision) { return; }
+        if (info.HasNameCollision)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                CaseNameCollisionDescriptor, info.Location ?? Location.None, info.TypeName));
+            return;
+        }
+
+        if (!info.EmitImplicitConversions)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DuplicateCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName));
+        }
+
+        // A generic root's nested wrapper shares the attribute's own scope: if a wrapper name
+        // equals its case type's simple name, the merged partial declaration shadows the
+        // top-level case type for the attribute's own type-argument lookup, and the compiler
+        // rejects it with CS8968. Warn and name the fix (UnionCaseName<T>) rather than leaving
+        // the user with a bare, unexplained compiler error.
+        if (info.TypeParameters.Length > 0)
+        {
+            for (var i = 0; i < info.CaseTypes.Length; i++)
+            {
+                if (info.CaseNames[i] == info.CaseTypes[i].Name)
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        GenericRootNameShadowingDescriptor,
+                        info.Location ?? Location.None,
+                        info.TypeName,
+                        info.CaseNames[i]));
+                }
+            }
+        }
 
         var sb = new StringBuilder();
 
