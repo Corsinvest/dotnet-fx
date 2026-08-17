@@ -169,6 +169,61 @@ public class UnionCodeFixTests
         Assert.Contains("var @base", fixedSource);
     }
 
+    [Fact]
+    public async Task Fix_NamesGenericUnionVariable_AfterTheWrappedType()
+    {
+        // A generic-union wrapper (see UnionAttribute<T1..T8>) has exactly one positional
+        // member, always called Value. The fix must name the local after the wrapped case
+        // type instead - Pet.Cat(var cat), not the uninformative Pet.Cat(var value).
+        var fixedSource = await ApplyFixAsync("""
+            public static class T
+            {
+                public static string F(Pet pet) => pet switch
+                {
+                    Pet.Cat(var cat) => cat.Name
+                };
+            }
+            """,
+            unionDeclaration: """
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            [Union<Cat, Dog>]
+            public abstract partial record Pet;
+            """);
+
+        Assert.Contains("Pet.Dog(var dog)", fixedSource);
+    }
+
+    [Fact]
+    public async Task Fix_EscapesKeywordCaseTypeName_OnGenericUnion()
+    {
+        // 'Base' lower-cases to 'base', a keyword, so the wrapped-type-derived variable name
+        // has to be escaped the same way member-name-derived ones are.
+        var fixedSource = await ApplyFixAsync("""
+            public static class T
+            {
+                public static string F(Shape shape) => shape switch
+                {
+                    Shape.Circle(var circle) => circle.Radius.ToString()
+                };
+            }
+            """,
+            unionDeclaration: """
+            using Corsinvest.Fx.Functional;
+
+            public record Circle(double Radius);
+            public record Base(double Width);
+
+            [Union<Circle, Base>]
+            public abstract partial record Shape;
+            """);
+
+        Assert.Contains("Shape.Base(var @base)", fixedSource);
+    }
+
     // ---- infrastructure ----------------------------------------------------
 
     private static async Task<string> ApplyFixAsync(string usageSource, string? unionDeclaration = null)
@@ -264,9 +319,11 @@ public class UnionCodeFixTests
             .RunGenerators(compilation)
             .GetRunResult();
 
+        // The nested [Union] shape emits "public partial record {Root}"; the generic
+        // [Union<...>] shape emits "public abstract partial record {Root}" instead.
         return runResult.Results
             .SelectMany(r => r.GeneratedSources)
             .Select(s => s.SourceText.ToString())
-            .First(s => s.Contains("public partial record"));
+            .First(s => s.Contains("public partial record") || s.Contains("public abstract partial record"));
     }
 }
