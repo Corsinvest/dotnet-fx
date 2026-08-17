@@ -94,7 +94,7 @@ public static class OptionBasics
     private static string DescribeUser(Option<User> user)
         => user switch
         {
-            Option<User>.Some(var value) => $"{value.Name} ({value.Email})",
+            Option<User>.Some(var some) => $"{some.Value.Name} ({some.Value.Email})",
             Option<User>.None => "not found"
         };
 

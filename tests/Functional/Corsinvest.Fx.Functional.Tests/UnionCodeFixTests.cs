@@ -17,49 +17,39 @@ public class UnionCodeFixTests
     private const string UnionDeclaration = """
         using Corsinvest.Fx.Functional;
 
-        [Union]
-        public partial record Payment
-        {
-            public partial record CreditCard(string Number, string Expiry);
-            public partial record PayPal(string Email);
-            public partial record Crypto();
-        }
+        public record CreditCard(string Number, string Expiry);
+        public record PayPal(string Email);
+        public record Crypto();
+
+        public abstract partial record Payment : IUnion<CreditCard, PayPal, Crypto>;
         """;
 
+    // Fix_AddsMissingArm_WithDeconstruction and Fix_DeconstructsCaseData_UsingMemberNames used to
+    // assert "Payment.CreditCard(var number, var expiry)" - a two-parameter deconstruction reached
+    // only when a case wrapper's own positional members are exposed directly, which was true of
+    // the retired nested [Union] form (the case type WAS the wrapper). Under IUnion<...>, every
+    // generated wrapper has exactly one positional member named Value (see UnionGenerator.cs,
+    // "public sealed partial record {CaseName}({CaseType} Value)"), so
+    // UnionExhaustivenessCodeFixProvider.CreatePattern's multi-parameter branch is unreachable for
+    // any case the generator can actually produce; it now always takes the single-"Value"-param
+    // branch, naming the local after the wrapped case type (see
+    // Fix_NamesGenericUnionVariable_AfterTheWrappedType below). Rewritten to assert that shape
+    // instead of the retired one.
     [Fact]
-    public async Task Fix_AddsMissingArm_WithDeconstruction()
+    public async Task Fix_AddsMissingArm_NamesLocalAfterWrappedCaseType()
     {
         var fixedSource = await ApplyFixAsync("""
             public static class T
             {
                 public static string F(Payment p) => p switch
                 {
-                    Payment.CreditCard(var number, var expiry) => number,
-                    Payment.PayPal(var email) => email
+                    Payment.CreditCard(var creditCard) => creditCard.Number,
+                    Payment.PayPal(var payPal) => payPal.Email
                 };
             }
             """);
 
-        // Crypto has no positional members, so a bare type pattern is the right shape.
-        Assert.Contains("Payment.Crypto => throw new System.NotImplementedException()", fixedSource);
-    }
-
-    [Fact]
-    public async Task Fix_DeconstructsCaseData_UsingMemberNames()
-    {
-        var fixedSource = await ApplyFixAsync("""
-            public static class T
-            {
-                public static string F(Payment p) => p switch
-                {
-                    Payment.PayPal(var email) => email,
-                    Payment.Crypto => "crypto"
-                };
-            }
-            """);
-
-        // Variable names come from the record's positional members.
-        Assert.Contains("Payment.CreditCard(var number, var expiry)", fixedSource);
+        Assert.Contains("Payment.Crypto(var crypto)", fixedSource);
     }
 
     [Fact]
@@ -70,13 +60,13 @@ public class UnionCodeFixTests
             {
                 public static string F(Payment p) => p switch
                 {
-                    Payment.PayPal(var email) => email
+                    Payment.PayPal(var payPal) => payPal.Email
                 };
             }
             """);
 
-        Assert.Contains("Payment.CreditCard(var number, var expiry)", fixedSource);
-        Assert.Contains("Payment.Crypto", fixedSource);
+        Assert.Contains("Payment.CreditCard(var creditCard)", fixedSource);
+        Assert.Contains("Payment.Crypto(var crypto)", fixedSource);
     }
 
     [Fact]
@@ -88,7 +78,7 @@ public class UnionCodeFixTests
             {
                 public static string F(Payment p) => p switch
                 {
-                    Payment.PayPal(var email) => email,
+                    Payment.PayPal(var payPal) => payPal.Email,
                     _ => "other"
                 };
             }
@@ -111,15 +101,15 @@ public class UnionCodeFixTests
                 {
                     switch (p)
                     {
-                        case Payment.PayPal(var email): return email;
+                        case Payment.PayPal(var payPal): return payPal.Email;
                     }
                     return "?";
                 }
             }
             """);
 
-        Assert.Contains("case Payment.CreditCard(var number, var expiry):", fixedSource);
-        Assert.Contains("case Payment.Crypto:", fixedSource);
+        Assert.Contains("case Payment.CreditCard(var creditCard):", fixedSource);
+        Assert.Contains("case Payment.Crypto(var crypto):", fixedSource);
     }
 
     [Fact]
@@ -131,7 +121,7 @@ public class UnionCodeFixTests
             {
                 public static string F(Payment p) => p switch
                 {
-                    Payment.PayPal(var email) => email
+                    Payment.PayPal(var payPal) => payPal.Email
                 };
             }
             """);
@@ -142,39 +132,20 @@ public class UnionCodeFixTests
         Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error && !d.IsSuppressed));
     }
 
-    [Fact]
-    public async Task Fix_EscapesKeywordMemberNames()
-    {
-        var fixedSource = await ApplyFixAsync("""
-            public static class T
-            {
-                public static string F(Shape s) => s switch
-                {
-                    Shape.Circle(var radius) => "circle"
-                };
-            }
-            """,
-            unionDeclaration: """
-            using Corsinvest.Fx.Functional;
-
-            [Union]
-            public partial record Shape
-            {
-                public partial record Circle(double Radius);
-                public partial record Triangle(double Base, double Height);
-            }
-            """);
-
-        // 'Base' lower-cases to 'base', a keyword, so it has to be escaped.
-        Assert.Contains("var @base", fixedSource);
-    }
+    // Fix_EscapesKeywordMemberNames used to declare Shape via the retired nested [Union] form,
+    // where Circle/Triangle's own positional members (Radius, Base, Height) were exposed directly
+    // by the case wrapper's Deconstruct - so a case type with a member literally named "Base"
+    // produced "var @base". Under IUnion<...> every wrapper exposes a single "Value" member (see
+    // the comment above Fix_AddsMissingArm_NamesLocalAfterWrappedCaseType), so member-name-derived
+    // escaping can no longer happen; only case-*type*-name-derived escaping can, which
+    // Fix_EscapesKeywordCaseTypeName_OnGenericUnion below already covers. Not duplicated here.
 
     [Fact]
     public async Task Fix_NamesGenericUnionVariable_AfterTheWrappedType()
     {
-        // A generic-union wrapper (see UnionAttribute<T1..T8>) has exactly one positional
-        // member, always called Value. The fix must name the local after the wrapped case
-        // type instead - Pet.Cat(var cat), not the uninformative Pet.Cat(var value).
+        // Every IUnion<...> wrapper has exactly one positional member, always called Value.
+        // The fix must name the local after the wrapped case type instead - Pet.Cat(var cat),
+        // not the uninformative Pet.Cat(var value).
         var fixedSource = await ApplyFixAsync("""
             public static class T
             {
@@ -190,8 +161,7 @@ public class UnionCodeFixTests
             public record Cat(string Name);
             public record Dog(string Name);
 
-            [Union<Cat, Dog>]
-            public abstract partial record Pet;
+            public abstract partial record Pet : IUnion<Cat, Dog>;
             """);
 
         Assert.Contains("Pet.Dog(var dog)", fixedSource);
@@ -217,8 +187,7 @@ public class UnionCodeFixTests
             public record Circle(double Radius);
             public record Base(double Width);
 
-            [Union<Circle, Base>]
-            public abstract partial record Shape;
+            public abstract partial record Shape : IUnion<Circle, Base>;
             """);
 
         Assert.Contains("Shape.Base(var @base)", fixedSource);
@@ -278,7 +247,7 @@ public class UnionCodeFixTests
             .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
             .Select(a => MetadataReference.CreateFromFile(a.Location))
             .Cast<MetadataReference>()
-            .Append(MetadataReference.CreateFromFile(typeof(UnionAttribute).Assembly.Location))
+            .Append(MetadataReference.CreateFromFile(typeof(UnionCaseNaming).Assembly.Location))
             .ToList();
 
         var workspace = new AdhocWorkspace();
@@ -319,8 +288,7 @@ public class UnionCodeFixTests
             .RunGenerators(compilation)
             .GetRunResult();
 
-        // The nested [Union] shape emits "public partial record {Root}"; the generic
-        // [Union<...>] shape emits "public abstract partial record {Root}" instead.
+        // Every IUnion<...> root generates "public abstract partial record {Root}".
         return runResult.Results
             .SelectMany(r => r.GeneratedSources)
             .Select(s => s.SourceText.ToString())

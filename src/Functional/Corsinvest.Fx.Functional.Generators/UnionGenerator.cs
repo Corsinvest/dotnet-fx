@@ -471,6 +471,13 @@ namespace Corsinvest.Fx.Functional
             sb.AppendLine("}");
         }
 
+        // The Task<TRoot> extension class is a separate top-level static class in the same
+        // namespace, not nested inside the ancestor chain re-opened above - so, unlike the bare
+        // `root` used inside that chain, it needs the containing types back in front of the name
+        // to still resolve to the same type (e.g. Outer.Pet, not just Pet).
+        var qualifiedRoot = string.Join(".", info.ContainingTypes.Select(t => t.Name).Append(root));
+        GenerateUnionExtensions(sb, info, qualified, qualifiedRoot);
+
         var arity = info.TypeParameters.Length == 0
             ? 0
             : info.TypeParameters.Count(c => c == ',') + 1;
@@ -486,7 +493,8 @@ namespace Corsinvest.Fx.Functional
     }
 
     /// <summary>
-    /// Appends the synchronous, void, and async <c>Match</c> overloads for a generic union.
+    /// Appends the synchronous (value- and void-returning) and asynchronous (value- and
+    /// void-returning) <c>Match</c>/<c>MatchAsync</c> overloads for a generic union.
     /// </summary>
     /// <param name="sb">The source builder to append to.</param>
     /// <param name="info">The union model supplying case names.</param>
@@ -552,6 +560,26 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
         sb.AppendLine("        };");
         sb.AppendLine();
+
+        // Async match, void-returning
+        sb.AppendLine("    public async Task MatchAsync(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, Task> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (this)");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            case {name} wrapped: await on{name}(wrapped.Value); break;");
+        }
+        sb.AppendLine("            default: throw new InvalidOperationException(\"Invalid union state\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
     }
 
     /// <summary>
@@ -575,6 +603,109 @@ namespace Corsinvest.Fx.Functional
             sb.AppendLine("    }");
             sb.AppendLine();
         }
+    }
+
+    /// <summary>
+    /// Appends the <c>{Root}UnionExtensions</c> static class: three <c>MatchAsync</c> overloads on
+    /// <c>Task&lt;TRoot&gt;</c> so fluent async pipelines can match directly on a pending union
+    /// without an intermediate <c>await</c> - async handlers returning <c>Task&lt;TResult&gt;</c>,
+    /// async handlers returning <c>Task</c>, and sync handlers returning <c>TResult</c>. Each
+    /// overload just awaits the task and forwards to the matching instance member.
+    /// </summary>
+    /// <param name="sb">The source builder to append to.</param>
+    /// <param name="info">The union model supplying case names and the root's own type parameters.</param>
+    /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
+    /// <param name="root">The union root type name including type parameters.</param>
+    private static void GenerateUnionExtensions(StringBuilder sb,
+                                                UnionInfo info,
+                                                ImmutableArray<string> qualified,
+                                                string root)
+    {
+        // The extension class needs the root's own type parameters (if any) plus, for the first
+        // overload, an additional TResult - e.g. "<T, E, TResult>" for ResultOf<T, E>.
+        var rootTypeParams = info.TypeParameters.Length == 0
+            ? Array.Empty<string>()
+            : info.TypeParameters.Trim('<', '>').Split(',').Select(p => p.Trim()).ToArray();
+
+        string TypeParamList(bool withResult)
+        {
+            var all = withResult ? rootTypeParams.Append("TResult") : rootTypeParams;
+            var list = string.Join(", ", all);
+            return list.Length == 0 ? string.Empty : $"<{list}>";
+        }
+
+        // Prefix with the containing-type chain so two same-named nested roots in the same
+        // namespace (e.g. Outer1.Pet and Outer2.Pet) don't both try to emit a top-level
+        // PetUnionExtensions and collide (CS0101) - the extension class itself is never nested,
+        // unlike the wrapper types, so it has no other scoping to fall back on.
+        var extensionsClassName = string.Concat(info.ContainingTypes.Select(t => t.Name).Append(info.TypeName)) + "UnionExtensions";
+
+        sb.AppendLine($"public static class {extensionsClassName}");
+        sb.AppendLine("{");
+
+        // 1) Async handlers returning Task<TResult>
+        sb.AppendLine($"    public static async Task<TResult> MatchAsync{TypeParamList(withResult: true)}(");
+        sb.AppendLine($"        this Task<{root}> task,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, Task<TResult>> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var result = await task;");
+        sb.AppendLine("        return await result.MatchAsync(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"            on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("        );");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 2) Async handlers returning Task (void)
+        sb.AppendLine($"    public static async Task MatchAsync{TypeParamList(withResult: false)}(");
+        sb.AppendLine($"        this Task<{root}> task,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, Task> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var result = await task;");
+        sb.AppendLine("        await result.MatchAsync(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"            on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("        );");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 3) Sync handlers returning TResult
+        sb.AppendLine($"    public static async Task<TResult> MatchAsync{TypeParamList(withResult: true)}(");
+        sb.AppendLine($"        this Task<{root}> task,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, TResult> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var result = await task;");
+        sb.AppendLine("        return result.Match(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"            on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("        );");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+        sb.AppendLine();
     }
 
 }

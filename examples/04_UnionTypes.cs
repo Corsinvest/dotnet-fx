@@ -8,48 +8,59 @@ public record CreditCard(string Number, string ExpiryDate);
 public record PayPal(string Email);
 public record BankTransfer(string Iban, string Bic);
 
-// [Union<...>] composes existing types. The generator emits one sealed nested wrapper per case
+// IUnion<...> composes existing types. The generator emits one sealed nested wrapper per case
 // (PaymentMethod.CreditCard and so on), each deriving from PaymentMethod, which is what keeps
 // the hierarchy closed and lets a plain switch match on it.
-[Union<CreditCard, PayPal, BankTransfer>]
-public abstract partial record PaymentMethod;
+public abstract partial record PaymentMethod : IUnion<CreditCard, PayPal, BankTransfer>;
 
 // Union: API response states
-[Union]
-public partial record ApiResponse
-{
-    public partial record Loading();
-    public partial record Success(UserData User);
-    public partial record Error(string Message);
-}
+public record Loading;
+public record Success(UserData User);
+public record Failure(string Message);
+
+public abstract partial record ApiResponse : IUnion<Loading, Success, Failure>;
 
 // Union: Geometric shapes
-[Union]
-public partial record Shape
+public record Circle(double Radius);
+public record Rectangle(double Width, double Height);
+public record Triangle(double SideA, double SideB, double SideC);
+
+public abstract partial record Shape : IUnion<Circle, Rectangle, Triangle>;
+
+// Union: a case type can be ANY type, not just a record. The wrapper contains its case rather
+// than inheriting from it, so `sealed`, `struct` and `enum` are all fine - and a value-type case
+// lives in a typed field, so nothing is boxed.
+public sealed class DatabaseError(string Table, int Code)          // sealed class
 {
-    public partial record Circle(double Radius);
-    public partial record Rectangle(double Width, double Height);
-    public partial record Triangle(double SideA, double SideB, double SideC);
+    public string Table { get; } = Table;
+    public int Code { get; } = Code;
 }
+
+public enum NetworkError { Timeout, Refused, DnsFailure }          // enum
+
+public readonly struct ValidationError(int Line, int Column)       // struct
+{
+    public int Line { get; } = Line;
+    public int Column { get; } = Column;
+}
+
+// string too: sealed BCL type
+public abstract partial record AppError : IUnion<DatabaseError, NetworkError, ValidationError, string>;
 
 // Data models
 public record UserData(int Id, string Name, string Email);
 
-// This file shows both ways to declare a union.
-//
-// PaymentMethod uses [Union<CreditCard, PayPal, BankTransfer>]: the cases are external types,
-// declared on their own, so the same type can take part in more than one union.
-//
-// ApiResponse and Shape use [Union] with nested cases: the cases exist only as part of the
-// union. That form is also the only one that can express a union whose cases close over the
-// root's own type parameter - which is why Option<T> and ResultOf<T,E> use it.
+// Every union in this file uses IUnion<...>: the cases are standalone types, declared on their
+// own, so the same case type can take part in more than one union (or be used independently of
+// it). This is also the only shape that can express a union whose cases close over the root's own
+// type parameter - which is why Option<T> and ResultOf<T,E> use it.
 
 /// <summary>
 /// Example 04: Union Types - Discriminated Unions
 ///
 /// Demonstrates custom discriminated unions for:
 /// - Payment methods (CreditCard, PayPal, BankTransfer)
-/// - API responses (Success, Error, Loading)
+/// - API responses (Success, Failure, Loading)
 /// - Shapes (Circle, Rectangle, Triangle)
 /// - Pattern matching and exhaustive handling
 /// </summary>
@@ -88,9 +99,9 @@ public static class UnionTypes
 
         var responses = new ApiResponse[]
         {
-            new ApiResponse.Loading(),
-            new ApiResponse.Success(new UserData(1, "Alice", "alice@example.com")),
-            new ApiResponse.Error("Network timeout")
+            new Loading(),
+            new Success(new UserData(1, "Alice", "alice@example.com")),
+            new Failure("Network timeout")
         };
 
         foreach (var response in responses)
@@ -104,9 +115,9 @@ public static class UnionTypes
 
         var shapes = new Shape[]
         {
-            new Shape.Circle(5.0),
-            new Shape.Rectangle(4.0, 6.0),
-            new Shape.Triangle(3.0, 4.0, 5.0)
+            new Circle(5.0),
+            new Rectangle(4.0, 6.0),
+            new Triangle(3.0, 4.0, 5.0)
         };
 
         foreach (var shape in shapes)
@@ -137,7 +148,40 @@ public static class UnionTypes
         {
             Console.WriteLine($"   {DescribeResponse(response)}");
         }
+
+        // Example 5: case types that are not records
+        Console.WriteLine("\n5️⃣  Mixed Case Types (class, enum, struct, string)\n");
+
+        var errors = new AppError[]
+        {
+            new AppError.DatabaseError(new DatabaseError("orders", 1205)),
+            new AppError.NetworkError(NetworkError.Timeout),
+            new AppError.ValidationError(new ValidationError(42, 7)),
+            new AppError.String("plain message")
+        };
+
+        foreach (var error in errors)
+        {
+            Console.WriteLine($"   {DescribeError(error)}");
+        }
     }
+
+    // A union case can be any type. Note what each arm receives: the wrapper hands over the case
+    // itself, so `db` is a DatabaseError, `net` is the enum value, `validation` is the struct.
+    //
+    // The enum and the struct are stored in typed fields rather than in an object, so neither is
+    // boxed - unlike the C# 15 `union` keyword, which always boxes value-type cases.
+    //
+    // The wrapper for `string` is named String (rule: primitives and BCL types use their CLR
+    // name), which is why the arm reads AppError.String rather than AppError.string.
+    private static string DescribeError(AppError error)
+        => error switch
+        {
+            AppError.DatabaseError(var db) => $"🗄️  {db.Table} failed with code {db.Code}",
+            AppError.NetworkError(var net) => $"🌐 network: {net}",
+            AppError.ValidationError(var validation) => $"📋 line {validation.Line}, col {validation.Column}",
+            AppError.String(var message) => $"💬 {message}"
+        };
 
     // Union cases are real types, so a plain switch works alongside Match().
     //
@@ -145,7 +189,7 @@ public static class UnionTypes
     // treats reference-type hierarchies as open. The UNION005 suppressor knows this hierarchy is
     // closed and stands the warning down.
     //
-    // Add a fourth case type to the [Union<...>] list and UNION004 flags every switch that does
+    // Add a fourth case type to the IUnion<...> list and UNION004 flags every switch that does
     // not handle it - the failure a discard arm would have hidden. The "Add missing union cases"
     // code fix then fills the arm in.
     private static string DescribePayment(PaymentMethod payment)
@@ -162,8 +206,8 @@ public static class UnionTypes
         => response switch
         {
             ApiResponse.Loading => "⏳ Loading...",
-            ApiResponse.Success(var user) => $"✅ {user.Name} ({user.Email})",
-            ApiResponse.Error(var message) => $"❌ {message}"
+            ApiResponse.Success(var success) => $"✅ {success.User.Name} ({success.User.Email})",
+            ApiResponse.Failure(var failure) => $"❌ {failure.Message}"
         };
 
     // Calculate payment processing fee
@@ -178,7 +222,7 @@ public static class UnionTypes
     private static void HandleApiResponse(ApiResponse response) => response.Match(
             onLoading: _ => Console.WriteLine("   ⏳ Loading..."),
             onSuccess: data => Console.WriteLine($"   ✅ Success: User {data.User.Name} ({data.User.Email})"),
-            onError: err => Console.WriteLine($"   ❌ Error: {err.Message}")
+            onFailure: err => Console.WriteLine($"   ❌ Error: {err.Message}")
         );
 
     // Calculate area of shape

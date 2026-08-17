@@ -13,13 +13,11 @@ public class UnionExhaustivenessTests
     private const string UnionDeclaration = """
         using Corsinvest.Fx.Functional;
 
-        [Union]
-        public partial record Payment
-        {
-            public partial record CreditCard(string Number, string Expiry);
-            public partial record PayPal(string Email);
-            public partial record Crypto(string Wallet);
-        }
+        public record CreditCard(string Number, string Expiry);
+        public record PayPal(string Email);
+        public record Crypto(string Wallet);
+
+        public abstract partial record Payment : IUnion<CreditCard, PayPal, Crypto>;
         """;
 
     // ---- UNION004: variants that are not handled ---------------------------
@@ -333,7 +331,7 @@ public class UnionExhaustivenessTests
             .Where(a => !a.IsDynamic && !string.IsNullOrEmpty(a.Location))
             .Select(a => MetadataReference.CreateFromFile(a.Location))
             .Cast<MetadataReference>()
-            .Append(MetadataReference.CreateFromFile(typeof(UnionAttribute).Assembly.Location))
+            .Append(MetadataReference.CreateFromFile(typeof(UnionCaseNaming).Assembly.Location))
             .ToList();
 
         var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)

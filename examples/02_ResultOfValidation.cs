@@ -70,8 +70,8 @@ public static class ResultOfValidation
     private static string Describe(ResultOf<User, ValidationError> result)
         => result switch
         {
-            ResultOf<User, ValidationError>.Ok(var user) => $"✅ {user.Name} <{user.Email}>, age {user.Age}",
-            ResultOf<User, ValidationError>.Fail(var error) => $"❌ {error}"
+            ResultOf<User, ValidationError>.Ok(var ok) => $"✅ {ok.Value.Name} <{ok.Value.Email}>, age {ok.Value.Age}",
+            ResultOf<User, ValidationError>.Fail(var fail) => $"❌ {fail.ErrorValue}"
         };
 
     // Main validation function using Railway-Oriented Programming

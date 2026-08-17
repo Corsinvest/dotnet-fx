@@ -1,27 +1,25 @@
 namespace Corsinvest.Fx.Functional.Tests;
 
 // Test union types
-[Union]
-public partial record ResultTest<T, E>
-{
-    public partial record Ok(T Value);
-    public partial record Error(E Value);
-}
+public record OkCase<T>(T Value);
+public record ErrorCase<E>(E Value);
 
-[Union]
-public partial record OptionTest<T>
-{
-    public partial record Some(T Value);
-    public partial record None();
-}
+[UnionCaseName<OkCase<int>>("Ok")]
+[UnionCaseName<ErrorCase<int>>("Error")]
+public abstract partial record ResultTest<T, E> : IUnion<OkCase<T>, ErrorCase<E>>;
 
-[Union]
-public partial record Shape
-{
-    public partial record Circle(double Radius);
-    public partial record Rectangle(double Width, double Height);
-    public partial record Triangle(double Base, double Height);
-}
+public record SomeCase<T>(T Value);
+public record NoneCase;
+
+[UnionCaseName<SomeCase<int>>("Some")]
+[UnionCaseName<NoneCase>("None")]
+public abstract partial record OptionTest<T> : IUnion<SomeCase<T>, NoneCase>;
+
+public record Circle(double Radius);
+public record Rectangle(double Width, double Height);
+public record Triangle(double Base, double Height);
+
+public abstract partial record Shape : IUnion<Circle, Rectangle, Triangle>;
 
 public class UnionTests
 {
@@ -29,7 +27,7 @@ public class UnionTests
     public void Result_Ok_CreatesCorrectInstance()
     {
         // Arrange & Act
-        var result = new ResultTest<string, string>.Ok("success");
+        var result = new ResultTest<string, string>.Ok(new OkCase<string>("success"));
 
         // Assert
         Assert.True(result.IsOk);
@@ -40,7 +38,7 @@ public class UnionTests
     public void Result_Error_CreatesCorrectInstance()
     {
         // Arrange & Act
-        var result = new ResultTest<string, string>.Error("failure");
+        var result = new ResultTest<string, string>.Error(new ErrorCase<string>("failure"));
 
         // Assert
         Assert.False(result.IsOk);
@@ -51,8 +49,8 @@ public class UnionTests
     public void Result_Match_ExecutesCorrectBranch()
     {
         // Arrange
-        var okResult = new ResultTest<int, string>.Ok(42);
-        var errorResult = new ResultTest<int, string>.Error("failure");
+        var okResult = new ResultTest<int, string>.Ok(new OkCase<int>(42));
+        var errorResult = new ResultTest<int, string>.Error(new ErrorCase<string>("failure"));
 
         // Act & Assert
         var okMessage = okResult.Match(
@@ -72,7 +70,7 @@ public class UnionTests
     public void Result_MatchVoid_ExecutesCorrectBranch()
     {
         // Arrange
-        var result = new ResultTest<int, string>.Ok(42);
+        var result = new ResultTest<int, string>.Ok(new OkCase<int>(42));
         string? executedBranch = null;
 
         // Act
@@ -89,7 +87,7 @@ public class UnionTests
     public async Task Result_MatchAsync_ExecutesCorrectBranch()
     {
         // Arrange
-        var result = new ResultTest<int, string>.Ok(42);
+        var result = new ResultTest<int, string>.Ok(new OkCase<int>(42));
 
         // Act
         var message = await result.MatchAsync(
@@ -113,8 +111,8 @@ public class UnionTests
     public void Result_TryGet_ReturnsCorrectValue()
     {
         // Arrange
-        var okResult = new ResultTest<int, string>.Ok(42);
-        var errorResult = new ResultTest<int, string>.Error("failure");
+        var okResult = new ResultTest<int, string>.Ok(new OkCase<int>(42));
+        var errorResult = new ResultTest<int, string>.Error(new ErrorCase<string>("failure"));
 
         // Act & Assert
         Assert.True(okResult.TryGetOk(out var ok));
@@ -132,7 +130,7 @@ public class UnionTests
     public void Option_Some_CreatesCorrectInstance()
     {
         // Arrange & Act
-        var option = new OptionTest<string>.Some("value");
+        var option = new OptionTest<string>.Some(new SomeCase<string>("value"));
 
         // Assert
         Assert.True(option.IsSome);
@@ -143,7 +141,7 @@ public class UnionTests
     public void Option_None_CreatesCorrectInstance()
     {
         // Arrange & Act
-        var option = new OptionTest<string>.None();
+        var option = new OptionTest<string>.None(new NoneCase());
 
         // Assert
         Assert.False(option.IsSome);
@@ -156,9 +154,9 @@ public class UnionTests
         // Arrange
         var shapes = new Shape[]
         {
-            new Shape.Circle(5.0),
-            new Shape.Rectangle(4.0, 6.0),
-            new Shape.Triangle(3.0, 8.0)
+            new Shape.Circle(new Circle(5.0)),
+            new Shape.Rectangle(new Rectangle(4.0, 6.0)),
+            new Shape.Triangle(new Triangle(3.0, 8.0))
         };
 
         // Act & Assert
@@ -172,9 +170,9 @@ public class UnionTests
 
             var expected = shape switch
             {
-                Shape.Circle(var radius) => Math.PI * radius * radius,
-                Shape.Rectangle(var width, var height) => width * height,
-                Shape.Triangle(var @base, var height) => 0.5 * @base * height,
+                Shape.Circle(var circle) => Math.PI * circle.Radius * circle.Radius,
+                Shape.Rectangle(var rectangle) => rectangle.Width * rectangle.Height,
+                Shape.Triangle(var triangle) => 0.5 * triangle.Base * triangle.Height,
                 _ => throw new InvalidOperationException()
             };
 
@@ -186,8 +184,8 @@ public class UnionTests
     public void Union_TypeChecking_Works()
     {
         // Act
-        var okResult = new ResultTest<string, int>.Ok("success");
-        var errorResult = new ResultTest<string, int>.Error(404);
+        var okResult = new ResultTest<string, int>.Ok(new OkCase<string>("success"));
+        var errorResult = new ResultTest<string, int>.Error(new ErrorCase<int>(404));
 
         // Assert
         Assert.True(okResult.IsOk);
@@ -199,9 +197,9 @@ public class UnionTests
     {
         // Arrange
         ResultTest<User, ApiError>[] responses = [
-            new ResultTest<User, ApiError>.Ok(new User("John", 30)),
-            new ResultTest<User, ApiError>.Error(new ApiError(404, "Not Found")),
-            new ResultTest<User, ApiError>.Error(new ApiError(500, "Server Error"))
+            new ResultTest<User, ApiError>.Ok(new OkCase<User>(new User("John", 30))),
+            new ResultTest<User, ApiError>.Error(new ErrorCase<ApiError>(new ApiError(404, "Not Found"))),
+            new ResultTest<User, ApiError>.Error(new ErrorCase<ApiError>(new ApiError(500, "Server Error")))
         ];
 
         // Act
@@ -220,13 +218,13 @@ public class UnionTests
     public void Union_PatternMatching_WithCSharpSwitch()
     {
         // Arrange
-        ResultTest<int, string> result = new ResultTest<int, string>.Ok(42);
+        ResultTest<int, string> result = new ResultTest<int, string>.Ok(new OkCase<int>(42));
 
         // Act
         var message = result switch
         {
-            ResultTest<int, string>.Ok ok => $"Got value: {ok.Value}",
-            ResultTest<int, string>.Error error => $"Got error: {error.Value}",
+            ResultTest<int, string>.Ok(var ok) => $"Got value: {ok.Value}",
+            ResultTest<int, string>.Error(var error) => $"Got error: {error.Value}",
             _ => "Unknown"
         };
 

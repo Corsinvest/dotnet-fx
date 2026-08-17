@@ -211,6 +211,132 @@ public class UnionGeneratorTests
         Assert.Contains("Cat wrapped => onCat(wrapped.Value)", generated);
     }
 
+    // ============================================
+    // Restored members: void MatchAsync + {Root}UnionExtensions on Task<TRoot>
+    // ============================================
+    // These two members (GenerateMatch's void-returning MatchAsync overload, and
+    // GenerateUnionExtensions' Task<TRoot> companion class) were emitted by the retired
+    // attribute-driven generator but dropped in c5f2ce2 when generation moved onto IUnion<...>.
+    // ResultOf<T,E> temporarily patched the gap with hand-written extensions
+    // (ResultOfExtensions.cs) until the generator grew them back; these tests pin the restored
+    // shape directly against the generator's own output for both a non-generic and a generic root,
+    // so a future regression is caught here rather than only via ResultOf's hand-written-turned-
+    // generated call sites.
+
+    [Fact]
+    public void Generates_VoidMatchAsync_ForNonGenericRoot()
+    {
+        var generated = Generate($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        Assert.Contains("public async Task MatchAsync(", generated);
+        Assert.Contains("Func<global::Cat, Task> onCat", generated);
+        Assert.Contains("Func<global::Dog, Task> onDog", generated);
+        Assert.Contains("case Cat wrapped: await onCat(wrapped.Value); break;", generated);
+        Assert.Contains("case Dog wrapped: await onDog(wrapped.Value); break;", generated);
+        Assert.Contains("default: throw new InvalidOperationException(\"Invalid union state\");", generated);
+    }
+
+    [Fact]
+    public void Generates_UnionExtensionsClass_ForNonGenericRoot()
+    {
+        var generated = Generate($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        Assert.Contains("public static class PetUnionExtensions", generated);
+
+        // Async handlers returning Task<TResult>.
+        Assert.Contains("public static async Task<TResult> MatchAsync<TResult>(", generated);
+        Assert.Contains("this Task<Pet> task,", generated);
+        Assert.Contains("Func<global::Cat, Task<TResult>> onCat", generated);
+
+        // Async handlers returning Task (void).
+        Assert.Contains("public static async Task MatchAsync(", generated);
+        Assert.Contains("Func<global::Cat, Task> onCat", generated);
+
+        // Sync handlers returning TResult.
+        Assert.Contains("Func<global::Cat, TResult> onCat", generated);
+    }
+
+    [Fact]
+    public void GeneratedVoidMatchAsyncAndUnionExtensions_CompileAndDispatch_ForNonGenericRoot()
+    {
+        // Not just text-matching: the restored members must actually compile and dispatch to the
+        // right handler, including through the Task<TRoot> extension.
+        var diagnostics = CompileWithGenerator($$"""
+            using Corsinvest.Fx.Functional;
+            using System.Threading.Tasks;
+
+            public record Cat(string Name, int Lives);
+            public record Dog(string Name);
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+
+            public static class Usage
+            {
+                public static async Task<string> DescribeAsync(Pet pet)
+                {
+                    string result = "";
+                    await pet.MatchAsync(
+                        async cat => { await Task.Delay(1); result = $"cat:{cat.Name}"; },
+                        async dog => { await Task.Delay(1); result = $"dog:{dog.Name}"; }
+                    );
+                    return result;
+                }
+
+                public static Task<string> DescribeViaTaskExtensionAsync(Task<Pet> petTask)
+                    => petTask.MatchAsync(
+                        cat => $"cat:{cat.Name}",
+                        dog => $"dog:{dog.Name}"
+                    );
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void Generates_VoidMatchAsyncAndUnionExtensions_ForGenericRoot()
+    {
+        // The generic-root shape matters here: both members must thread the root's own type
+        // parameters (T, E) through correctly, plus TResult where the overload needs it.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Good<T>(T Value);
+            public record Bad<E>(E Value);
+
+            public abstract partial record Res<T, E> : IUnion<Good<T>, Bad<E>>;
+            """);
+
+        // Wrapper names are derived from each case type's simple name (UnionCaseNaming): the open
+        // generic Good<T>/Bad<E> - T and E being the root's own type parameters - derive to
+        // GoodOfT/BadOfE rather than plain Good/Bad, since nothing here overrides them via
+        // [UnionCaseName<...>].
+
+        // Instance void MatchAsync, generic over the root's own T/E.
+        Assert.Contains("public async Task MatchAsync(", generated);
+        Assert.Contains("Func<global::Good<T>, Task> onGoodOfT", generated);
+        Assert.Contains("Func<global::Bad<E>, Task> onBadOfE", generated);
+        Assert.Contains("case GoodOfT wrapped: await onGoodOfT(wrapped.Value); break;", generated);
+        Assert.Contains("case BadOfE wrapped: await onBadOfE(wrapped.Value); break;", generated);
+
+        // ResUnionExtensions class, generic over <T, E> (plus TResult for the two overloads that
+        // need it), operating on Task<Res<T, E>>.
+        Assert.Contains("public static class ResUnionExtensions", generated);
+        Assert.Contains("public static async Task<TResult> MatchAsync<T, E, TResult>(", generated);
+        Assert.Contains("this Task<Res<T, E>> task,", generated);
+        Assert.Contains("public static async Task MatchAsync<T, E>(", generated);
+        Assert.Contains("Func<global::Good<T>, Task<TResult>> onGoodOfT", generated);
+        Assert.Contains("Func<global::Good<T>, TResult> onGoodOfT", generated);
+    }
+
     [Fact]
     public void Reports_UNION008_WhenTwoCasesCannotBeNamedApart()
     {
