@@ -15,7 +15,9 @@ internal sealed class UnionInfo(
     bool emitImplicitConversions,
     bool hasNameCollision,
     ImmutableArray<ContainingTypeInfo> containingTypes,
-    Location? location)
+    Location? location,
+    ImmutableArray<string> duplicateMarkerDisplayNames = default,
+    string missingModifiers = "")
 {
     public string Namespace { get; } = @namespace;
     public string TypeName { get; } = typeName;
@@ -47,6 +49,34 @@ internal sealed class UnionInfo(
     public ImmutableArray<ContainingTypeInfo> ContainingTypes { get; } = containingTypes;
 
     public Location? Location { get; } = location;
+
+    /// <summary>
+    /// Display names of every <c>IUnion&lt;...&gt;</c> marker interface found on this root, when
+    /// there is more than one (UNION013). Empty (default) when the root has exactly one marker,
+    /// the only legal shape.
+    /// </summary>
+    public ImmutableArray<string> DuplicateMarkerDisplayNames { get; }
+        = duplicateMarkerDisplayNames.IsDefault ? ImmutableArray<string>.Empty : duplicateMarkerDisplayNames;
+
+    /// <summary>
+    /// True when this root has more than one <c>IUnion&lt;...&gt;</c> marker interface. The
+    /// generator emits nothing for such a root (UNION013) rather than guessing which marker was
+    /// meant.
+    /// </summary>
+    public bool HasMultipleMarkers => DuplicateMarkerDisplayNames.Length > 1;
+
+    /// <summary>
+    /// The missing modifier(s) - <c>"abstract"</c>, <c>"partial"</c>, or <c>"abstract partial"</c>
+    /// - when a root carrying an <c>IUnion&lt;...&gt;</c> marker is not declared both
+    /// <c>abstract</c> and <c>partial</c> (UNION014); empty when the declaration is correct.
+    /// </summary>
+    public string MissingModifiers { get; } = missingModifiers;
+
+    /// <summary>
+    /// True when <see cref="MissingModifiers"/> is non-empty: the root is missing <c>abstract</c>,
+    /// <c>partial</c>, or both. The generator emits nothing for such a root (UNION014).
+    /// </summary>
+    public bool IsMissingRequiredModifiers => MissingModifiers.Length > 0;
 }
 
 /// <summary>

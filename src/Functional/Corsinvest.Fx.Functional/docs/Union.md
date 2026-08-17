@@ -177,6 +177,65 @@ public record Cat(string Name);
 public abstract partial record Pet : IUnion<IShape, Cat>;
 ```
 
+## Migrating from 1.x
+
+Version 2.0.0 removes the `[Union]`/`[Union<T1..T8>]` attributes entirely - `IUnion<T1..T8>`
+replaces them, not alongside them. There is no compatibility shim: a 1.x project upgrading to
+2.0.0 gets compile errors wherever `[Union]` or `[Union<...>]` appears, with nothing in the error
+text pointing at what replaced it. This section is that pointer.
+
+### Plain unions
+
+Change the case types from nested `partial record`s to ordinary standalone types, drop the
+attribute, and move its type arguments (if it had any) into a base-list `IUnion<...>`:
+
+```csharp
+// 1.x
+[Union]
+public partial record Pet
+{
+    public partial record Cat(string Name, int Lives);
+    public partial record Dog(string Name);
+}
+
+// 2.0.0
+public record Cat(string Name, int Lives);
+public record Dog(string Name);
+
+public abstract partial record Pet : IUnion<Cat, Dog>;
+```
+
+The root must now be written `public abstract partial record` - `abstract` was implicit before
+(the generator added it silently); under `IUnion<...>` a root missing either keyword is reported
+as **UNION014**, not silently corrected.
+
+Everything the generator produces - `Match`/`MatchAsync`, `Is{Case}`, `TryGet{Case}`, the implicit
+conversions, the wrapper types themselves (`Pet.Cat`, `Pet.Dog`) - keeps the same shape. Call sites
+that only use that surface do not change at all.
+
+### `Option<T>` and `ResultOf<T, E>`
+
+Both are still `IUnion<...>` roots under the hood (`Option<T> : IUnion<Some<T>, None>`,
+`ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>`), and neither one's public API moved. If your code only
+calls `Match`, `MatchAsync`, `Some`/`None`, `Ok`/`Fail`, `Map`, `Bind`, or switches on the wrapper
+types, **there is nothing to change** - those call sites compile unmodified against 2.0.0. The
+break only reaches code that declared its *own* `[Union]` types, not code that merely consumed
+`Option<T>`/`ResultOf<T, E>`.
+
+### Keeping a wrapper's name stable
+
+If a 1.x case type's nested name mattered to callers (`Pet.Cat` used explicitly, e.g. in a
+`catch`-style pattern or a public signature), `[UnionCaseName<T>]` pins the 2.0.0 wrapper name to
+match:
+
+```csharp
+[UnionCaseName<Cat>("Cat")]
+public abstract partial record Pet : IUnion<Cat, Dog>;
+```
+
+This is also the mechanism for resolving a name collision the default rules can't - see
+[Wrapper names](#wrapper-names) below.
+
 ### Wrapper names
 
 Each case gets a wrapper name, derived from the case type unless overridden. The rules, checked
@@ -1082,12 +1141,44 @@ an `object?` (which allocates anyway).
 | `UNION008` | Error | Case types resolve to the same wrapper name, even after namespace-prefix disambiguation |
 | `UNION009` | Warning | Two cases share one CLR type once tuple/generic erasure is applied, so implicit conversions were omitted for the **whole union**, not just the colliding pair |
 | `UNION012` | Error | A case type is an interface, which C# forbids as the target of a user-defined conversion |
+| `UNION013` | Error | A root implements more than one `IUnion<...>` marker interface; nothing is generated for it |
+| `UNION014` | Error | A root implementing `IUnion<...>` is not declared `abstract partial`; nothing is generated for it |
 
 `UNION001` is a structural error and cannot be configured away: without it the generator cannot
-report that it failed to emit valid code. `UNION004`, `UNION008`, `UNION009`, and `UNION012` are
-normal analyzer rules and can be tuned through `.editorconfig`, though tuning `UNION008`/`UNION009`/`UNION012`
-down does not make the underlying shape any more legal - they diagnose conditions the generator
-cannot emit working code for, not style preferences.
+report that it failed to emit valid code. `UNION004`, `UNION008`, `UNION009`, `UNION012`,
+`UNION013`, and `UNION014` are normal analyzer rules and can be tuned through `.editorconfig`,
+though tuning `UNION008`/`UNION009`/`UNION012`/`UNION013`/`UNION014` down does not make the
+underlying shape any more legal - they diagnose conditions the generator cannot emit working code
+for, not style preferences.
+
+### `UNION013`: more than one `IUnion<...>` marker
+
+A base list has no `AllowMultiple = false`-style guard the way the retired `[Union]` attribute
+did, so nothing stops a root from naming two markers:
+
+```csharp
+// error UNION013: Type 'Pet' implements more than one IUnion<...> marker interface
+// (Corsinvest.Fx.Functional.IUnion<Cat, Dog>, Corsinvest.Fx.Functional.IUnion<Cat, Dog, Cow>);
+// a union root must implement exactly one, so nothing was generated for it.
+public abstract partial record Pet : IUnion<Cat, Dog>, IUnion<Cat, Dog, Cow>;
+```
+
+Keep exactly one `IUnion<...>` in the base list.
+
+### `UNION014`: root must be `abstract partial`
+
+The generator always emits `public abstract partial record {Root}` for the root's second partial
+declaration, so a root that omits either keyword does not mean what it says - `abstract` would be
+silently added on the generator's side, and a missing `partial` fails with a bare `CS0260` that
+does not explain why `IUnion<...>` requires it:
+
+```csharp
+// error UNION014: Type 'Pet' implements IUnion<...> but is not declared 'abstract partial'; add
+// the missing abstract keyword(s) so the declaration means what the generated code assumes.
+public partial record Pet : IUnion<Cat, Dog>;
+```
+
+Declare the root `public abstract partial record Pet : IUnion<Cat, Dog>;`.
 
 ### `UNION009`: implicit conversions omitted for the whole union
 

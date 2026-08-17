@@ -31,7 +31,8 @@ public class UnionGenerator : IIncrementalGenerator
         id: "UNION009",
         title: "Implicit conversions omitted",
         messageFormat: "Union '{0}' has case types {1} that share one CLR type, so implicit "
-                     + "conversions were not generated for them; construct those case wrappers directly",
+                     + "conversions were not generated for any case in this union; construct every "
+                     + "case wrapper directly",
         category: "Design",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
@@ -42,6 +43,25 @@ public class UnionGenerator : IIncrementalGenerator
         messageFormat: "Union '{0}' has case type '{1}', which is an interface; C# forbids a "
                      + "user-defined conversion to or from an interface, so the generated implicit "
                      + "conversion cannot compile",
+        category: "Design",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor MultipleUnionMarkersDescriptor = new(
+        id: "UNION013",
+        title: "Union root implements more than one IUnion<...>",
+        messageFormat: "Type '{0}' implements more than one IUnion<...> marker interface ({1}); "
+                     + "a union root must implement exactly one, so nothing was generated for it",
+        category: "Design",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor RootMustBeAbstractPartialDescriptor = new(
+        id: "UNION014",
+        title: "Union root must be declared abstract partial",
+        messageFormat: "Type '{0}' implements IUnion<...> but is not declared 'abstract partial'; "
+                     + "add the missing {1} keyword(s) so the declaration means what the generated "
+                     + "code assumes",
         category: "Design",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
@@ -113,16 +133,83 @@ namespace Corsinvest.Fx.Functional
             return null;
         }
 
-        var marker = root.Interfaces.FirstOrDefault(
-            i => i.Name == UnionInterfaceName
-                 && i.ContainingNamespace?.ToDisplayString() == UnionNamespace);
+        // root.Interfaces is symbol-level (merged across every partial declaration piece), so this
+        // sees every IUnion<...> the root implements no matter which partial piece declared it.
+        // Unlike the retired [Union] attribute (AllowMultiple = false, compiler-enforced), a base
+        // interface list has no such guard - a root naming two IUnion<...> markers compiles fine on
+        // its own, so that has to be caught here (UNION013) rather than left to silently pick one.
+        var markers = root.Interfaces
+            .Where(i => i.Name == UnionInterfaceName && i.ContainingNamespace?.ToDisplayString() == UnionNamespace)
+            .ToImmutableArray();
 
-        if (marker is null) { return null; }
+        if (markers.Length == 0) { return null; }
+
+        var rootNamespace = root.ContainingNamespace.IsGlobalNamespace
+            ? string.Empty
+            : root.ContainingNamespace.ToDisplayString();
+        var rootTypeParameters = root.TypeParameters.Length == 0
+            ? string.Empty
+            : "<" + string.Join(", ", root.TypeParameters.Select(p => p.Name)) + ">";
+        var rootContainingTypes = GetContainingTypeChain(root);
+
+        if (markers.Length > 1)
+        {
+            return new UnionInfo(
+                @namespace: rootNamespace,
+                typeName: root.Name,
+                typeParameters: rootTypeParameters,
+                caseTypes: ImmutableArray<ITypeSymbol>.Empty,
+                caseNames: ImmutableArray<string>.Empty,
+                emitImplicitConversions: false,
+                hasNameCollision: false,
+                containingTypes: rootContainingTypes,
+                location: root.Locations.FirstOrDefault(),
+                duplicateMarkerDisplayNames: markers
+                    .Select(m => m.ToDisplayString(FullyQualifiedNoKeywordsFormat))
+                    .ToImmutableArray());
+        }
+
+        var marker = markers[0];
 
         // Roslyn has already substituted the root's type parameters into the case types:
         // for Option<T> : IUnion<Some<T>, None> these arrive as Some<T> and None.
         var caseTypes = marker.TypeArguments;
         if (caseTypes.Length == 0) { return null; }
+
+        // A union root's declaration must mean what it says: `abstract` because the generator
+        // always emits `public abstract partial record {Root}` regardless of what the user wrote
+        // (silently overriding a non-abstract declaration otherwise), and `partial` because every
+        // wrapper is nested inside the root via a second partial declaration - omitting it produces
+        // a bare, unexplained CS0260 with no pointer back to IUnion<...> as the reason. Checked on
+        // the symbol (IsAbstract merges across every partial piece, same as root.Interfaces above)
+        // and on this specific declaring syntax (partial is per-declaration, not merged - though a
+        // missing partial on any piece is already CS0260 on its own, this gives a diagnostic that
+        // actually explains why one is required here).
+        var isPartial = context.Node is RecordDeclarationSyntax { Modifiers: var modifiers }
+                         && modifiers.Any(SyntaxKind.PartialKeyword);
+        var isAbstract = root.IsAbstract;
+
+        if (!isAbstract || !isPartial)
+        {
+            var missing = (!isAbstract, !isPartial) switch
+            {
+                (true, true) => "abstract partial",
+                (true, false) => "abstract",
+                _ => "partial"
+            };
+
+            return new UnionInfo(
+                @namespace: rootNamespace,
+                typeName: root.Name,
+                typeParameters: rootTypeParameters,
+                caseTypes: ImmutableArray<ITypeSymbol>.Empty,
+                caseNames: ImmutableArray<string>.Empty,
+                emitImplicitConversions: false,
+                hasNameCollision: false,
+                containingTypes: rootContainingTypes,
+                location: root.Locations.FirstOrDefault(),
+                missingModifiers: missing);
+        }
 
         var overrides = ReadCaseNameOverrides(root);
         var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, root.TypeParameters, out var hasNameCollision);
@@ -138,18 +225,14 @@ namespace Corsinvest.Fx.Functional
             .Count();
 
         return new UnionInfo(
-            @namespace: root.ContainingNamespace.IsGlobalNamespace
-                ? string.Empty
-                : root.ContainingNamespace.ToDisplayString(),
+            @namespace: rootNamespace,
             typeName: root.Name,
-            typeParameters: root.TypeParameters.Length == 0
-                ? string.Empty
-                : "<" + string.Join(", ", root.TypeParameters.Select(p => p.Name)) + ">",
+            typeParameters: rootTypeParameters,
             caseTypes: caseTypes,
             caseNames: names,
             emitImplicitConversions: distinctClrTypes == caseTypes.Length,
             hasNameCollision: hasNameCollision,
-            containingTypes: GetContainingTypeChain(root),
+            containingTypes: rootContainingTypes,
             location: root.Locations.FirstOrDefault());
     }
 
@@ -383,6 +466,23 @@ namespace Corsinvest.Fx.Functional
     /// <param name="info">The resolved union model built by <see cref="BuildUnionInfo"/>.</param>
     private static void GenerateUnion(SourceProductionContext context, UnionInfo info)
     {
+        if (info.HasMultipleMarkers)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                MultipleUnionMarkersDescriptor,
+                info.Location ?? Location.None,
+                info.TypeName,
+                string.Join(", ", info.DuplicateMarkerDisplayNames)));
+            return;
+        }
+
+        if (info.IsMissingRequiredModifiers)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                RootMustBeAbstractPartialDescriptor, info.Location ?? Location.None, info.TypeName, info.MissingModifiers));
+            return;
+        }
+
         if (info.HasNameCollision)
         {
             context.ReportDiagnostic(Diagnostic.Create(

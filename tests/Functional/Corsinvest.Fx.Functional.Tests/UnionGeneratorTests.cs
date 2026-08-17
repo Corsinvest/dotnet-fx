@@ -439,6 +439,75 @@ public class UnionGeneratorTests
         Assert.Contains("IShape", diagnostic.GetMessage());
     }
 
+    [Fact]
+    public void Reports_UNION013_WhenARootImplementsTwoUnionMarkers()
+    {
+        // Unlike the retired [Union] attribute (AllowMultiple = false, compiler-enforced), a base
+        // interface list has no such guard - this compiles fine on its own and the generator must
+        // catch it, not silently pick root.Interfaces.FirstOrDefault()'s answer (Cat, Dog here).
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+            public record Cow(string Name);
+
+            public abstract partial record Pet : IUnion<Cat, Dog>, IUnion<Cat, Dog, Cow>;
+            """);
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION013"));
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("Pet", diagnostic.GetMessage());
+
+        // Nothing should be generated for a root the generator refused to pick a marker for.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+            public record Cow(string Name);
+
+            public abstract partial record Pet : IUnion<Cat, Dog>, IUnion<Cat, Dog, Cow>;
+            """);
+        Assert.DoesNotContain("record Pet", generated);
+    }
+
+    [Fact]
+    public void Reports_UNION014_WhenRootIsNotDeclaredAbstract()
+    {
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION014"));
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("Pet", diagnostic.GetMessage());
+        Assert.Contains("abstract", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void Reports_UNION014_WhenRootIsNotDeclaredPartial()
+    {
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public abstract record Pet : IUnion<Cat, Dog>;
+            """);
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION014"));
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("Pet", diagnostic.GetMessage());
+        Assert.Contains("partial", diagnostic.GetMessage());
+    }
+
     // ---- Regression coverage: namespaced / nested union roots, and attribute look-alikes -------
     //
     // Two of the four blockers fixed in the original attribute-based generator (bare-name hint

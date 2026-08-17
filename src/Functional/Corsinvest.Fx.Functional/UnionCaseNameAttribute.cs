@@ -6,10 +6,9 @@ namespace Corsinvest.Fx.Functional;
 /// <typeparam name="T">The case type whose wrapper is being renamed.</typeparam>
 /// <example>
 /// <code>
-/// [Union&lt;Farm.Cat, Wild.Cat&gt;]
 /// [UnionCaseName&lt;Farm.Cat&gt;("Domestic")]
 /// [UnionCaseName&lt;Wild.Cat&gt;("Feral")]
-/// public abstract partial record Feline;
+/// public abstract partial record Feline : IUnion&lt;Farm.Cat, Wild.Cat&gt;;
 /// </code>
 /// </example>
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
