@@ -62,7 +62,11 @@ public static class UnionCaseNaming
         var names = new string[caseTypes.Length];
         for (var i = 0; i < caseTypes.Length; i++)
         {
-            names[i] = overrides.TryGetValue(caseTypes[i], out var custom)
+            // Overrides are keyed on the original definition (see ReadCaseNameOverrides): the
+            // attribute names a closed stand-in (Some<int>) because it cannot mention the root's
+            // own type parameter, while a case type that closes over that parameter arrives here
+            // still open (Some<T>). Both share one original definition.
+            names[i] = overrides.TryGetValue(caseTypes[i].OriginalDefinition, out var custom)
                 ? custom
                 : GetSimpleName(caseTypes[i]);
         }
@@ -75,7 +79,7 @@ public static class UnionCaseNaming
 
         for (var i = 0; i < names.Length; i++)
         {
-            if (clashing.Contains(names[i]) && !overrides.ContainsKey(caseTypes[i]))
+            if (clashing.Contains(names[i]) && !overrides.ContainsKey(caseTypes[i].OriginalDefinition))
             {
                 var prefix = caseTypes[i].ContainingNamespace is { IsGlobalNamespace: false } ns
                     ? ns.Name

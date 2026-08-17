@@ -4,9 +4,9 @@ using System.Collections.Immutable;
 namespace Corsinvest.Fx.Functional;
 
 /// <summary>
-/// Everything the generator needs about one <c>[Union&lt;...&gt;]</c> declaration.
+/// Everything the generator needs about one <c>IUnion&lt;...&gt;</c> declaration.
 /// </summary>
-internal sealed class GenericUnionInfo(
+internal sealed class UnionInfo(
     string @namespace,
     string typeName,
     string typeParameters,

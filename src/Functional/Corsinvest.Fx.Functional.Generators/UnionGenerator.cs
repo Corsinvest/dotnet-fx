@@ -18,22 +18,6 @@ public class UnionGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 
-    private static readonly DiagnosticDescriptor UnionMustBePartialDescriptor = new(
-        id: "UNION002",
-        title: "Union type must be partial",
-        messageFormat: "Type '{0}' with [Union] attribute must be declared as 'partial'",
-        category: "Design",
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
-    private static readonly DiagnosticDescriptor VariantMustBePartialDescriptor = new(
-        id: "UNION003",
-        title: "Union variant must be partial",
-        messageFormat: "Variant '{0}' in union '{1}' must be declared as 'partial record'",
-        category: "Design",
-        defaultSeverity: DiagnosticSeverity.Error,
-        isEnabledByDefault: true);
-
     private static readonly DiagnosticDescriptor CaseNameCollisionDescriptor = new(
         id: "UNION008",
         title: "Union case names collide",
@@ -108,213 +92,105 @@ namespace Corsinvest.Fx.Functional
 }");
         });
 
-        // Find types with [Union] attribute
-        var unionDeclarations = context.SyntaxProvider
+        // Find union roots: a partial record that implements IUnion<...>. Roslyn substitutes the
+        // root's own type parameters into the interface's type arguments before we ever see them,
+        // so there is no substitution logic here - marker.TypeArguments already hands us the case
+        // types with the root's <T> baked in.
+        var unionRoots = context.SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: static (node, _) => IsUnionCandidate(node),
-                transform: static (ctx, _) => GetUnionGenerationContext(ctx))
-            .Where(static ctx => ctx is not null);
+                predicate: static (node, _) => node is RecordDeclarationSyntax { BaseList: not null },
+                transform: static (ctx, ct) => BuildUnionInfo(ctx, ct))
+            .Where(static info => info is not null)
+            .Collect()
+            .SelectMany(static (infos, _) => DeduplicatePartialDeclarations(infos!));
 
-        context.RegisterSourceOutput(
-            unionDeclarations,
-            static (spc, genContext) => ProcessUnionGeneration(spc, genContext!));
-
-        // Generic attribute path: [Union<T1, ..., Tn>] on a root with no nested cases.
-        // ForAttributeWithMetadataName needs a compile-time constant metadata name, which bakes in
-        // the arity, so each arity from 1 to 8 needs its own registration.
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`1");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`2");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`3");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`4");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`5");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`6");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`7");
-        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`8");
+        context.RegisterSourceOutput(unionRoots, static (spc, info) => GenerateUnion(spc, info));
     }
+
+    private const string UnionInterfaceName = "IUnion";
+    private const string UnionNamespace = "Corsinvest.Fx.Functional";
 
     /// <summary>
-    /// Wires up the generic <c>[Union&lt;...&gt;]</c> pipeline for one attribute arity.
+    /// Builds the model for one union root declaration from its syntax context, or null when the
+    /// declared symbol is not a union root (does not implement <c>IUnion&lt;...&gt;</c>).
     /// </summary>
-    /// <param name="context">The generator initialization context to register against.</param>
-    /// <param name="attributeMetadataName">
-    /// The fully-qualified metadata name of the arity-specific attribute, e.g.
-    /// <c>Corsinvest.Fx.Functional.UnionAttribute`2</c>.
-    /// </param>
-    private static void RegisterGenericUnionProvider(IncrementalGeneratorInitializationContext context,
-                                                      string attributeMetadataName)
+    /// <param name="context">The syntax context supplied by <c>CreateSyntaxProvider</c>.</param>
+    /// <param name="cancellationToken">Cancellation token for the generator pipeline.</param>
+    private static UnionInfo? BuildUnionInfo(GeneratorSyntaxContext context, CancellationToken cancellationToken)
     {
-        var genericUnions = context.SyntaxProvider
-            .ForAttributeWithMetadataName(
-                attributeMetadataName,
-                predicate: static (node, _) => node is RecordDeclarationSyntax,
-                transform: static (ctx, _) => BuildGenericUnionInfo(ctx))
-            .Where(static info => info is not null);
-
-        context.RegisterSourceOutput(
-            genericUnions,
-            static (spc, info) => GenerateGenericUnion(spc, info!));
-    }
-
-    private static bool IsUnionCandidate(SyntaxNode node)
-        => node is RecordDeclarationSyntax record
-            && record.AttributeLists.Count > 0;
-
-    private static UnionGenerationContext? GetUnionGenerationContext(GeneratorSyntaxContext context)
-    {
-        var record = (RecordDeclarationSyntax)context.Node;
-        var diagnostics = new List<Diagnostic>();
-
-        // Resolve the attribute through the semantic model: a textual name match would also
-        // fire on unrelated attributes that merely contain "Union" (e.g. [MyUnionHelper]).
-        var hasUnionAttribute = record.AttributeLists
-                                      .SelectMany(al => al.Attributes)
-                                      .Any(a => IsUnionAttribute(a, context.SemanticModel));
-        if (!hasUnionAttribute)
+        if (context.SemanticModel.GetDeclaredSymbol(context.Node, cancellationToken) is not INamedTypeSymbol root)
         {
             return null;
         }
 
-        // Check if main record is partial
-        var isPartial = record.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword));
-        if (!isPartial)
-        {
-            var diagnostic = Diagnostic.Create(
-                UnionMustBePartialDescriptor,
-                record.Identifier.GetLocation(),
-                record.Identifier.Text);
-            diagnostics.Add(diagnostic);
+        var marker = root.Interfaces.FirstOrDefault(
+            i => i.Name == UnionInterfaceName
+                 && i.ContainingNamespace?.ToDisplayString() == UnionNamespace);
 
-            // Return context with diagnostics only, no code generation
-            return new UnionGenerationContext(null, diagnostics);
-        }
+        if (marker is null) { return null; }
 
-        // Get all nested records (variants)
-        var allVariants = record.Members.OfType<RecordDeclarationSyntax>().ToList();
-        var variants = new List<VariantInfo>();
+        // Roslyn has already substituted the root's type parameters into the case types:
+        // for Option<T> : IUnion<Some<T>, None> these arrive as Some<T> and None.
+        var caseTypes = marker.TypeArguments;
+        if (caseTypes.Length == 0) { return null; }
 
-        foreach (var variant in allVariants)
-        {
-            var isVariantPartial = variant.Modifiers.Any(m => m.IsKind(SyntaxKind.PartialKeyword));
+        var overrides = ReadCaseNameOverrides(root);
+        var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, out var hasNameCollision);
 
-            if (!isVariantPartial)
-            {
-                // Report diagnostic for non-partial variant
-                var diagnostic = Diagnostic.Create(
-                    VariantMustBePartialDescriptor,
-                    variant.Identifier.GetLocation(),
-                    variant.Identifier.Text,
-                    record.Identifier.Text);
-                diagnostics.Add(diagnostic);
-            }
-            else
-            {
-                // Add to variants list only if partial
-                variants.Add(new VariantInfo(
-                    Name: variant.Identifier.Text,
-                    Parameters: variant.ParameterList?.Parameters
-                        .Select(p => new ParamInfo(p.Type!.ToString(), p.Identifier.Text))
-                        .ToList() ?? []
-                ));
-            }
-        }
+        // Duplicate CLR types make duplicate conversion operators illegal (CS0557). Named tuples
+        // with different element names, e.g. (int X, int Y) and (int Row, int Col), are distinct
+        // to SymbolEqualityComparer but erase to the same metadata type ValueTuple<int, int>, so
+        // compare by a canonical form with tuple element names stripped at every nesting level
+        // (GetCanonicalClrType) instead of the case type symbol itself.
+        var distinctClrTypes = caseTypes
+            .Select(GetCanonicalClrType)
+            .Distinct(SymbolEqualityComparer.Default)
+            .Count();
 
-        var unionInfo = new UnionInfo(
-            Namespace: GetNamespace(record),
-            TypeName: record.Identifier.Text,
-            TypeParameters: GetTypeParameters(record),
-            Variants: variants,
-            ContainingTypes: GetContainingTypeChain(record),
-            Location: record.Identifier.GetLocation()
-        );
-
-        return new UnionGenerationContext(unionInfo, diagnostics);
-    }
-
-    private const string UnionAttributeMetadataName = "Corsinvest.Fx.Functional.UnionAttribute";
-
-    private static bool IsUnionAttribute(AttributeSyntax attribute, SemanticModel semanticModel)
-    {
-        var symbol = semanticModel.GetSymbolInfo(attribute).Symbol
-                     ?? semanticModel.GetSymbolInfo(attribute).CandidateSymbols.FirstOrDefault();
-
-        var attributeType = (symbol as IMethodSymbol)?.ContainingType ?? symbol as INamedTypeSymbol;
-
-        return attributeType?.ToDisplayString() == UnionAttributeMetadataName;
-    }
-
-    private static string GetNamespace(SyntaxNode node)
-    {
-        var parent = node.Parent;
-        while (parent != null)
-        {
-            if (parent is NamespaceDeclarationSyntax ns) { return ns.Name.ToString(); }
-            if (parent is FileScopedNamespaceDeclarationSyntax fsns) { return fsns.Name.ToString(); }
-
-            parent = parent.Parent;
-        }
-        return string.Empty;
-    }
-
-    /// <summary>
-    /// Walks a type declaration's containing-type chain, outermost first, capturing enough about
-    /// each ancestor to re-emit its opening declaration line so a generated partial can be nested
-    /// back inside it. Empty when <paramref name="node"/> is not a nested type.
-    /// </summary>
-    /// <param name="node">The type declaration whose ancestors to walk.</param>
-    private static List<ContainingTypeInfo> GetContainingTypeChain(SyntaxNode node)
-    {
-        var chain = new List<ContainingTypeInfo>();
-
-        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
-        {
-            if (parent is not TypeDeclarationSyntax typeDecl) { continue; }
-
-            var typeParameters = typeDecl.TypeParameterList is null
+        return new UnionInfo(
+            @namespace: root.ContainingNamespace.IsGlobalNamespace
                 ? string.Empty
-                : typeDecl.TypeParameterList.ToString();
-
-            chain.Add(new ContainingTypeInfo(GetTypeDeclarationKeyword(typeDecl), typeDecl.Identifier.Text, typeParameters));
-        }
-
-        chain.Reverse();
-        return chain;
+                : root.ContainingNamespace.ToDisplayString(),
+            typeName: root.Name,
+            typeParameters: root.TypeParameters.Length == 0
+                ? string.Empty
+                : "<" + string.Join(", ", root.TypeParameters.Select(p => p.Name)) + ">",
+            caseTypes: caseTypes,
+            caseNames: names,
+            emitImplicitConversions: distinctClrTypes == caseTypes.Length,
+            hasNameCollision: hasNameCollision,
+            containingTypes: GetContainingTypeChain(root),
+            location: root.Locations.FirstOrDefault());
     }
 
     /// <summary>
-    /// The declaration keyword(s) for a type declaration - <c>class</c>, <c>record</c>,
-    /// <c>record struct</c>, <c>struct</c>, or <c>interface</c> - as needed to re-declare a
-    /// matching partial around a nested union.
+    /// Deduplicates union roots that were seen more than once because <c>CreateSyntaxProvider</c>
+    /// fires once per partial declaration: a root split across several <c>partial record</c>
+    /// pieces would otherwise be built (and its generated file emitted) once per piece, colliding
+    /// on the same hint name (CS8785). Keyed by the root's fully-qualified name plus arity, which
+    /// uniquely identifies a symbol the way <see cref="BuildHintName"/> does for its output file.
     /// </summary>
-    /// <param name="typeDecl">The type declaration to inspect.</param>
-    private static string GetTypeDeclarationKeyword(TypeDeclarationSyntax typeDecl)
-        => typeDecl switch
-        {
-            RecordDeclarationSyntax record => record.ClassOrStructKeyword.IsKind(SyntaxKind.StructKeyword)
-                ? "record struct"
-                : "record",
-            ClassDeclarationSyntax => "class",
-            StructDeclarationSyntax => "struct",
-            InterfaceDeclarationSyntax => "interface",
-            _ => "class"
-        };
-
-    private static string GetTypeParameters(RecordDeclarationSyntax record)
-        => record.TypeParameterList is null
-            ? string.Empty
-            : record.TypeParameterList.ToString();
-
-    private static void ProcessUnionGeneration(SourceProductionContext context, UnionGenerationContext genContext)
+    /// <param name="infos">Every non-null union model built from every matching partial declaration.</param>
+    private static IEnumerable<UnionInfo> DeduplicatePartialDeclarations(ImmutableArray<UnionInfo> infos)
     {
-        // Report all diagnostics first
-        foreach (var diagnostic in genContext.Diagnostics)
-        {
-            context.ReportDiagnostic(diagnostic);
-        }
+        var seen = new HashSet<string>();
 
-        // Only generate code if UnionInfo is available (no critical errors)
-        if (genContext.UnionInfo is not null)
+        foreach (var info in infos)
         {
-            GenerateUnion(context, genContext.UnionInfo);
+            var arity = info.TypeParameters.Length == 0
+                ? 0
+                : info.TypeParameters.Count(c => c == ',') + 1;
+
+            var key = string.Join(
+                ".",
+                new[] { info.Namespace }
+                    .Concat(info.ContainingTypes.Select(t => t.Name))
+                    .Append($"{info.TypeName}`{arity}"));
+
+            if (seen.Add(key))
+            {
+                yield return info;
+            }
         }
     }
 
@@ -368,395 +244,7 @@ namespace Corsinvest.Fx.Functional
         return sb.ToString();
     }
 
-    private static void GenerateUnion(SourceProductionContext context, UnionInfo unionInfo)
-    {
-        try
-        {
-            var hintName = BuildHintName(
-                unionInfo.Namespace,
-                unionInfo.ContainingTypes.Select(t => t.Name),
-                unionInfo.TypeName,
-                arity: 0,
-                suffix: "g");
-
-            context.AddSource(hintName, GenerateUnionSource(unionInfo));
-        }
-        catch (Exception ex)
-        {
-            // Report diagnostic for generation errors
-            context.ReportDiagnostic(Diagnostic.Create(
-                UnionGenerationFailedDescriptor,
-                unionInfo.Location ?? Location.None,
-                unionInfo.TypeName,
-                ex.Message));
-        }
-    }
-
-    private static string GenerateUnionSource(UnionInfo unionInfo)
-    {
-        var sb = new StringBuilder();
-
-        // Header
-        sb.AppendLine("// <auto-generated/>");
-        sb.AppendLine("#nullable enable");
-        sb.AppendLine();
-        sb.AppendLine("using System;");
-        sb.AppendLine("using System.Threading.Tasks;");
-        sb.AppendLine();
-
-        if (!string.IsNullOrEmpty(unionInfo.Namespace))
-        {
-            sb.AppendLine($"namespace {unionInfo.Namespace};");
-            sb.AppendLine();
-        }
-
-        // Re-open each ancestor type, outermost first, so a union nested inside another type
-        // lands back inside it instead of becoming a phantom top-level type.
-        foreach (var containingType in unionInfo.ContainingTypes)
-        {
-            sb.AppendLine($"public partial {containingType.Keyword} {containingType.Name}{containingType.TypeParameters}");
-            sb.AppendLine("{");
-        }
-
-        // Type declaration
-        sb.AppendLine($"public partial record {unionInfo.TypeName}{unionInfo.TypeParameters}");
-        sb.AppendLine("{");
-
-        // Private constructor (sealed hierarchy)
-        sb.AppendLine($"    private {unionInfo.TypeName}() {{ }}");
-        sb.AppendLine();
-
-        // Sealed variants
-        foreach (var variant in unionInfo.Variants)
-        {
-            GenerateVariant(sb, unionInfo, variant);
-        }
-
-        // Type checking properties
-        foreach (var variant in unionInfo.Variants)
-        {
-            sb.AppendLine($"    public bool Is{variant.Name} => this is {variant.Name};");
-        }
-        sb.AppendLine();
-
-        // Match methods
-        GenerateMatchMethods(sb, unionInfo);
-
-        // TryGet methods
-        GenerateTryGetMethods(sb, unionInfo);
-
-        sb.AppendLine("}");
-
-        // Union extensions
-        GenerateUnionExtensions(sb, unionInfo);
-
-        // Close the ancestor types opened above, innermost first.
-        for (var i = 0; i < unionInfo.ContainingTypes.Count; i++)
-        {
-            sb.AppendLine("}");
-        }
-
-        return sb.ToString();
-    }
-
-    private static void GenerateVariant(StringBuilder sb, UnionInfo unionInfo, VariantInfo variant)
-    {
-        // For records without parameters, generate a simple sealed record
-        // For records with parameters, the parameters are already in the user declaration
-        sb.AppendLine($"    public sealed partial record {variant.Name} : {unionInfo.TypeName}{unionInfo.TypeParameters};");
-        sb.AppendLine();
-    }
-
-    private static void GenerateUnionExtensions(StringBuilder sb, UnionInfo unionInfo)
-    {
-        // Parametri generici della union
-        var genericParamsList = !string.IsNullOrEmpty(unionInfo.TypeParameters)
-            ? unionInfo.TypeParameters.Trim('<', '>').Split(',').Select(p => p.Trim()).ToList()
-            : [];
-
-        // Classe di estensione
-        sb.AppendLine($"public static class {unionInfo.TypeName}UnionExtensions");
-        sb.AppendLine("{");
-
-        // 1️⃣ Async Match con TResult (Task<TResult>) -> Func<Task<TResult>>
-        {
-            var methodGenericParams = new List<string>(genericParamsList) { "TResult" };
-            var methodGenericParamsString = $"<{string.Join(", ", methodGenericParams)}>";
-
-            sb.AppendLine($"    public static async Task<TResult> MatchAsync{methodGenericParamsString}(");
-            sb.AppendLine($"        this Task<{unionInfo.TypeName}{unionInfo.TypeParameters}> task,");
-
-            for (int i = 0; i < unionInfo.Variants.Count; i++)
-            {
-                var variant = unionInfo.Variants[i];
-                var comma = i < unionInfo.Variants.Count - 1 ? "," : string.Empty;
-                sb.AppendLine($"        Func<{unionInfo.TypeName}{unionInfo.TypeParameters}.{variant.Name}, Task<TResult>> on{variant.Name}{comma}");
-            }
-
-            sb.AppendLine("    )");
-            sb.AppendLine("    {");
-            sb.AppendLine("        var result = await task;");
-            sb.AppendLine("        return await result.MatchAsync(");
-            for (int i = 0; i < unionInfo.Variants.Count; i++)
-            {
-                var variant = unionInfo.Variants[i];
-                var comma = i < unionInfo.Variants.Count - 1 ? "," : string.Empty;
-                sb.AppendLine($"            on{variant.Name}{comma}");
-            }
-            sb.AppendLine("        );");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-        }
-
-        // 2️⃣ Async Match senza TResult (Task) -> Func<Task>
-        {
-            var methodGenericParamsString = genericParamsList.Count > 0 
-                                                ? $"<{string.Join(", ", genericParamsList)}>" 
-                                                : string.Empty;
-
-            sb.AppendLine($"    public static async Task MatchAsync{methodGenericParamsString}(");
-            sb.AppendLine($"        this Task<{unionInfo.TypeName}{unionInfo.TypeParameters}> task,");
-
-            for (int i = 0; i < unionInfo.Variants.Count; i++)
-            {
-                var variant = unionInfo.Variants[i];
-                var comma = i < unionInfo.Variants.Count - 1 
-                                ? "," 
-                                : string.Empty;
-
-                sb.AppendLine($"        Func<{unionInfo.TypeName}{unionInfo.TypeParameters}.{variant.Name}, Task> on{variant.Name}{comma}");
-            }
-
-            sb.AppendLine("    )");
-            sb.AppendLine("    {");
-            sb.AppendLine("        var result = await task;");
-            sb.AppendLine("        await result.MatchAsync(");
-            for (int i = 0; i < unionInfo.Variants.Count; i++)
-            {
-                var variant = unionInfo.Variants[i];
-                var comma = i < unionInfo.Variants.Count - 1 
-                            ? "," 
-                            : string.Empty;
-
-                sb.AppendLine($"            on{variant.Name}{comma}");
-            }
-            sb.AppendLine("        );");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-        }
-
-        // 3️⃣ Async Match con TResult (Task<TResult>) -> Func<TResult> (sincrona)
-        {
-            var methodGenericParams = new List<string>(genericParamsList) { "TResult" };
-            var methodGenericParamsString = $"<{string.Join(", ", methodGenericParams)}>";
-
-            sb.AppendLine($"    public static async Task<TResult> MatchAsync{methodGenericParamsString}(");
-            sb.AppendLine($"        this Task<{unionInfo.TypeName}{unionInfo.TypeParameters}> task,");
-            for (int i = 0; i < unionInfo.Variants.Count; i++)
-            {
-                var variant = unionInfo.Variants[i];
-                var comma = i < unionInfo.Variants.Count - 1 
-                                ? "," 
-                                : string.Empty;
-
-                sb.AppendLine($"        Func<{unionInfo.TypeName}{unionInfo.TypeParameters}.{variant.Name}, TResult> on{variant.Name}{comma}");
-            }
-
-            sb.AppendLine("    )");
-            sb.AppendLine("    {");
-            sb.AppendLine("        var result = await task;");
-            sb.AppendLine("        return result.Match(");
-            for (int i = 0; i < unionInfo.Variants.Count; i++)
-            {
-                var variant = unionInfo.Variants[i];
-                var comma = i < unionInfo.Variants.Count - 1 
-                                ? "," 
-                                : string.Empty;
-
-                sb.AppendLine($"            on{variant.Name}{comma}");
-            }
-            sb.AppendLine("        );");
-            sb.AppendLine("    }");
-
-        }
-
-        sb.AppendLine("}");
-    }
-
-    private static void GenerateMatchMethods(StringBuilder sb, UnionInfo unionInfo)
-    {
-        // Sync Match with return value
-        sb.AppendLine("    public TResult Match<TResult>(");
-        for (int i = 0; i < unionInfo.Variants.Count; i++)
-        {
-            var variant = unionInfo.Variants[i];
-            var comma = i < unionInfo.Variants.Count - 1 
-                            ? "," 
-                            : string.Empty;
-
-            sb.AppendLine($"        Func<{variant.Name}, TResult> on{variant.Name}{comma}");
-        }
-        sb.AppendLine("    )");
-        sb.AppendLine("    {");
-        sb.AppendLine("        return this switch");
-        sb.AppendLine("        {");
-        foreach (var variant in unionInfo.Variants)
-        {
-            sb.AppendLine($"            {variant.Name} {variant.Name.ToLowerInvariant()} => on{variant.Name}({variant.Name.ToLowerInvariant()}),");
-        }
-        sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
-        sb.AppendLine("        };");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // Sync Match without return value
-        sb.AppendLine("    public void Match(");
-        for (int i = 0; i < unionInfo.Variants.Count; i++)
-        {
-            var variant = unionInfo.Variants[i];
-            var comma = i < unionInfo.Variants.Count - 1 
-                            ? "," 
-                            : string.Empty;
-
-            sb.AppendLine($"        Action<{variant.Name}> on{variant.Name}{comma}");
-        }
-        sb.AppendLine("    )");
-        sb.AppendLine("    {");
-        sb.AppendLine("        switch (this)");
-        sb.AppendLine("        {");
-        foreach (var variant in unionInfo.Variants)
-        {
-            sb.AppendLine($"            case {variant.Name} {variant.Name.ToLowerInvariant()}:");
-            sb.AppendLine($"                on{variant.Name}({variant.Name.ToLowerInvariant()});");
-            sb.AppendLine("                break;");
-        }
-        sb.AppendLine("            default:");
-        sb.AppendLine("                throw new InvalidOperationException(\"Invalid union state\");");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // Async Match methods
-        GenerateAsyncMatchMethods(sb, unionInfo);
-    }
-
-    private static void GenerateAsyncMatchMethods(StringBuilder sb, UnionInfo unionInfo)
-    {
-        // Async Match with return value
-        sb.AppendLine("    public async Task<TResult> MatchAsync<TResult>(");
-        for (int i = 0; i < unionInfo.Variants.Count; i++)
-        {
-            var variant = unionInfo.Variants[i];
-            var comma = i < unionInfo.Variants.Count - 1 
-                            ? "," 
-                            : string.Empty;
-
-            sb.AppendLine($"        Func<{variant.Name}, Task<TResult>> on{variant.Name}{comma}");
-        }
-        sb.AppendLine("    )");
-        sb.AppendLine("    {");
-        sb.AppendLine("        return this switch");
-        sb.AppendLine("        {");
-        foreach (var variant in unionInfo.Variants)
-        {
-            sb.AppendLine($"            {variant.Name} {variant.Name.ToLowerInvariant()} => await on{variant.Name}({variant.Name.ToLowerInvariant()}),");
-        }
-        sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
-        sb.AppendLine("        };");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // Async Match without return value
-        sb.AppendLine("    public async Task MatchAsync(");
-        for (int i = 0; i < unionInfo.Variants.Count; i++)
-        {
-            var variant = unionInfo.Variants[i];
-            var comma = i < unionInfo.Variants.Count - 1 
-                        ? "," 
-                        : string.Empty;
-
-            sb.AppendLine($"        Func<{variant.Name}, Task> on{variant.Name}{comma}");
-        }
-        sb.AppendLine("    )");
-        sb.AppendLine("    {");
-        sb.AppendLine("        switch (this)");
-        sb.AppendLine("        {");
-        foreach (var variant in unionInfo.Variants)
-        {
-            sb.AppendLine($"            case {variant.Name} {variant.Name.ToLowerInvariant()}:");
-            sb.AppendLine($"                await on{variant.Name}({variant.Name.ToLowerInvariant()});");
-            sb.AppendLine("                break;");
-        }
-        sb.AppendLine("            default:");
-        sb.AppendLine("                throw new InvalidOperationException(\"Invalid union state\");");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-    }
-
-    private static void GenerateTryGetMethods(StringBuilder sb, UnionInfo unionInfo)
-    {
-        foreach (var variant in unionInfo.Variants)
-        {
-            sb.AppendLine($"    public bool TryGet{variant.Name}(out {variant.Name} {variant.Name.ToLowerInvariant()})");
-            sb.AppendLine("    {");
-            sb.AppendLine($"        if (this is {variant.Name} {variant.Name.ToLowerInvariant()}Value)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            {variant.Name.ToLowerInvariant()} = {variant.Name.ToLowerInvariant()}Value;");
-            sb.AppendLine("            return true;");
-            sb.AppendLine("        }");
-            sb.AppendLine($"        {variant.Name.ToLowerInvariant()} = default!;");
-            sb.AppendLine("        return false;");
-            sb.AppendLine("    }");
-            sb.AppendLine();
-        }
-    }
-
-    // ---- Generic [Union<T1..T8>] path --------------------------------------
-
-    /// <summary>
-    /// Builds the model for one <c>[Union&lt;...&gt;]</c> declaration from the generator's
-    /// attribute-target context, or null when the target does not describe a usable union.
-    /// </summary>
-    /// <param name="context">The attribute target context supplied by <c>ForAttributeWithMetadataName</c>.</param>
-    private static GenericUnionInfo? BuildGenericUnionInfo(GeneratorAttributeSyntaxContext context)
-    {
-        if (context.TargetSymbol is not INamedTypeSymbol root) { return null; }
-
-        var attribute = context.Attributes[0];
-        if (attribute.AttributeClass is not { } attributeClass) { return null; }
-
-        var caseTypes = attributeClass.TypeArguments;
-        if (caseTypes.Length == 0) { return null; }
-
-        var overrides = ReadCaseNameOverrides(root);
-        var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, out var hasNameCollision);
-
-        // Duplicate CLR types make duplicate conversion operators illegal (CS0557). Named tuples
-        // with different element names, e.g. (int X, int Y) and (int Row, int Col), are distinct
-        // to SymbolEqualityComparer but erase to the same metadata type ValueTuple<int, int>, so
-        // compare by a canonical form with tuple element names stripped at every nesting level
-        // (GetCanonicalClrType) instead of the case type symbol itself.
-        var distinctClrTypes = caseTypes
-            .Select(GetCanonicalClrType)
-            .Distinct(SymbolEqualityComparer.Default)
-            .Count();
-
-        return new GenericUnionInfo(
-            @namespace: root.ContainingNamespace.IsGlobalNamespace
-                ? string.Empty
-                : root.ContainingNamespace.ToDisplayString(),
-            typeName: root.Name,
-            typeParameters: root.TypeParameters.Length == 0
-                ? string.Empty
-                : "<" + string.Join(", ", root.TypeParameters.Select(p => p.Name)) + ">",
-            caseTypes: caseTypes,
-            caseNames: names,
-            emitImplicitConversions: distinctClrTypes == caseTypes.Length,
-            hasNameCollision: hasNameCollision,
-            containingTypes: GetContainingTypeChain(root),
-            location: root.Locations.FirstOrDefault());
-    }
+    // ---- IUnion<T1..T8> path ------------------------------------------------
 
     /// <summary>
     /// Walks a type symbol's containing-type chain, outermost first, capturing enough about each
@@ -844,7 +332,7 @@ namespace Corsinvest.Fx.Functional
     /// least one other case, in declaration order, for UNION009's message.
     /// </summary>
     /// <param name="info">The resolved union model to inspect.</param>
-    private static IEnumerable<string> GetCasesSharingAClrType(GenericUnionInfo info)
+    private static IEnumerable<string> GetCasesSharingAClrType(UnionInfo info)
     {
         var canonical = info.CaseTypes.Select(GetCanonicalClrType).ToArray();
 
@@ -879,18 +367,22 @@ namespace Corsinvest.Fx.Functional
             if (attribute.ConstructorArguments.Length != 1) { continue; }
             if (attribute.ConstructorArguments[0].Value is not string name) { continue; }
 
-            overrides[attributeClass.TypeArguments[0]] = name;
+            // Key on the original definition: the attribute must name a closed type (Some<int>),
+            // since an attribute type argument cannot mention the root's own type parameter
+            // (CS8968), while the case type from IUnion<...> arrives constructed over that
+            // parameter instead (Some<T>). Both share one original definition (Some<>).
+            overrides[attributeClass.TypeArguments[0].OriginalDefinition] = name;
         }
 
         return overrides;
     }
 
     /// <summary>
-    /// Emits the generated source for one generic <c>[Union&lt;...&gt;]</c> declaration.
+    /// Emits the generated source for one <c>IUnion&lt;...&gt;</c> declaration.
     /// </summary>
     /// <param name="context">The source production context to add the generated file to.</param>
-    /// <param name="info">The resolved union model built by <see cref="BuildGenericUnionInfo"/>.</param>
-    private static void GenerateGenericUnion(SourceProductionContext context, GenericUnionInfo info)
+    /// <param name="info">The resolved union model built by <see cref="BuildUnionInfo"/>.</param>
+    private static void GenerateUnion(SourceProductionContext context, UnionInfo info)
     {
         if (info.HasNameCollision)
         {
@@ -998,8 +490,8 @@ namespace Corsinvest.Fx.Functional
         }
         sb.AppendLine();
 
-        GenerateGenericMatch(sb, info, qualified, root);
-        GenerateGenericTryGet(sb, info, qualified);
+        GenerateMatch(sb, info, qualified, root);
+        GenerateTryGet(sb, info, qualified);
 
         sb.AppendLine("}");
 
@@ -1030,10 +522,10 @@ namespace Corsinvest.Fx.Functional
     /// <param name="info">The union model supplying case names.</param>
     /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
     /// <param name="root">The union root type name including type parameters.</param>
-    private static void GenerateGenericMatch(StringBuilder sb,
-                                             GenericUnionInfo info,
-                                             ImmutableArray<string> qualified,
-                                             string root)
+    private static void GenerateMatch(StringBuilder sb,
+                                      UnionInfo info,
+                                      ImmutableArray<string> qualified,
+                                      string root)
     {
         // Match with a result
         sb.AppendLine("    public TResult Match<TResult>(");
@@ -1098,9 +590,9 @@ namespace Corsinvest.Fx.Functional
     /// <param name="sb">The source builder to append to.</param>
     /// <param name="info">The union model supplying case names.</param>
     /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
-    private static void GenerateGenericTryGet(StringBuilder sb,
-                                              GenericUnionInfo info,
-                                              ImmutableArray<string> qualified)
+    private static void GenerateTryGet(StringBuilder sb,
+                                       UnionInfo info,
+                                       ImmutableArray<string> qualified)
     {
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
@@ -1116,21 +608,3 @@ namespace Corsinvest.Fx.Functional
     }
 
 }
-
-// Data structures for union metadata
-internal record UnionInfo(
-    string Namespace,
-    string TypeName,
-    string TypeParameters,
-    List<VariantInfo> Variants,
-    List<ContainingTypeInfo> ContainingTypes,
-    Location? Location
-);
-
-internal record VariantInfo(string Name, List<ParamInfo> Parameters);
-internal record ParamInfo(string Type, string Name);
-
-internal record UnionGenerationContext(
-    UnionInfo? UnionInfo,
-    List<Diagnostic> Diagnostics
-);
