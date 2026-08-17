@@ -253,6 +253,71 @@ public static class ResultOfExtensions
     }
 
     // ============================================
+    // Async Match (void)
+    // ============================================
+
+    /// <summary>
+    /// Pattern-match with async handlers that produce no value.
+    /// </summary>
+    /// <remarks>
+    /// The generator emits the value-returning <c>MatchAsync&lt;TResult&gt;</c> as an instance
+    /// member; this void-returning overload is hand-written here so async handlers with no
+    /// <c>return</c> statement (naturally producing <see cref="Task"/> rather than
+    /// <see cref="Task{TResult}"/>) still have a match. Instance members are only preferred over
+    /// extension methods when they are themselves applicable, so this extension is picked
+    /// whenever the generated generic overload can't infer <c>TResult</c>.
+    /// </remarks>
+    public static async Task MatchAsync<T, E>(
+        this ResultOf<T, E> result,
+        Func<Ok<T>, Task> onOk,
+        Func<Fail<E>, Task> onFail)
+    {
+        if (result.TryGetOk(out var ok)) { await onOk(ok); }
+        else if (result.TryGetFail(out var fail)) { await onFail(fail); }
+    }
+
+    // ============================================
+    // Async Match on Task&lt;ResultOf&gt;
+    // ============================================
+
+    /// <summary>
+    /// Pattern-match over a <see cref="Task{TResult}"/> of <see cref="ResultOf{T,E}"/> with async handlers.
+    /// </summary>
+    public static async Task<TResult> MatchAsync<T, E, TResult>(
+        this Task<ResultOf<T, E>> resultTask,
+        Func<Ok<T>, Task<TResult>> onOk,
+        Func<Fail<E>, Task<TResult>> onFail)
+    {
+        var result = await resultTask;
+        return await result.MatchAsync(onOk, onFail);
+    }
+
+    /// <summary>
+    /// Pattern-match over a <see cref="Task{TResult}"/> of <see cref="ResultOf{T,E}"/> with async handlers
+    /// that produce no value.
+    /// </summary>
+    public static async Task MatchAsync<T, E>(
+        this Task<ResultOf<T, E>> resultTask,
+        Func<Ok<T>, Task> onOk,
+        Func<Fail<E>, Task> onFail)
+    {
+        var result = await resultTask;
+        await result.MatchAsync(onOk, onFail);
+    }
+
+    /// <summary>
+    /// Pattern-match over a <see cref="Task{TResult}"/> of <see cref="ResultOf{T,E}"/> with synchronous handlers.
+    /// </summary>
+    public static async Task<TResult> MatchAsync<T, E, TResult>(
+        this Task<ResultOf<T, E>> resultTask,
+        Func<Ok<T>, TResult> onOk,
+        Func<Fail<E>, TResult> onFail)
+    {
+        var result = await resultTask;
+        return result.Match(onOk, onFail);
+    }
+
+    // ============================================
     // Async Bind
     // ============================================
 

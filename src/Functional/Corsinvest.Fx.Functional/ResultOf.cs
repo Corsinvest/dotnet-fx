@@ -1,5 +1,15 @@
 namespace Corsinvest.Fx.Functional;
 
+/// <summary>Represents a successful outcome.</summary>
+/// <typeparam name="T">The type of the success value</typeparam>
+/// <param name="Value">The success value</param>
+public sealed record Ok<T>(T Value);
+
+/// <summary>Represents a failed outcome.</summary>
+/// <typeparam name="E">The type of the error value</typeparam>
+/// <param name="ErrorValue">The error value</param>
+public sealed record Fail<E>(E ErrorValue);
+
 /// <summary>
 /// Represents the result of an operation that can either succeed with a value or fail with an error.
 /// Provides type-safe error handling following the Railway-Oriented Programming pattern.
@@ -8,7 +18,12 @@ namespace Corsinvest.Fx.Functional;
 /// <typeparam name="E">The type of the error value</typeparam>
 /// <remarks>
 /// <para>
-/// This is a discriminated union type with two variants: Ok (success) and Fail (failure).
+/// A discriminated union with two cases, <see cref="Ok{T}"/> and <see cref="Fail{E}"/>, declared
+/// through <see cref="IUnion{T1,T2}"/>. Note that each case closes over a different type parameter
+/// of the root - a shape no attribute form can express, because attribute arguments are metadata
+/// and cannot reference the decorated type's own type parameters.
+/// </para>
+/// <para>
 /// Use this type to make errors explicit in your function signatures, forcing callers to handle both cases.
 /// Supports LINQ query syntax, pattern matching, and async operations.
 /// </para>
@@ -51,34 +66,15 @@ namespace Corsinvest.Fx.Functional;
 ///     ProcessUser(result);
 /// </code>
 /// </example>
-[Union]
-public partial record ResultOf<T, E>
+[UnionCaseName<Ok<int>>("Ok")]
+[UnionCaseName<Fail<int>>("Fail")]
+public abstract partial record ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>
 {
-    /// <summary>
-    /// Represents a successful operation with a value.
-    /// </summary>
-    /// <param name="Value">The success value</param>
-    public partial record Ok(T Value);
+    /// <summary>Alias for <c>IsOk</c>, for FluentResults-style code.</summary>
+    public bool IsSuccess => IsOk;
 
-    /// <summary>
-    /// Represents a failed operation with an error.
-    /// </summary>
-    /// <param name="ErrorValue">The error value</param>
-    public partial record Fail(E ErrorValue);
-
-    /// <summary>
-    /// Gets a value indicating whether this result represents a successful operation.
-    /// Alias for the auto-generated <c>IsOk</c> property. Use <c>IsOk</c> for concise code
-    /// or <c>IsSuccess</c> for more explicit, FluentResults-compatible code.
-    /// </summary>
-    public bool IsSuccess => this is Ok;
-
-    /// <summary>
-    /// Gets a value indicating whether this result represents a failed operation.
-    /// Alias for the auto-generated <c>IsFail</c> property. Use <c>IsFail</c> for concise code
-    /// or <c>IsFailure</c> for more explicit, FluentResults-compatible code.
-    /// </summary>
-    public bool IsFailure => this is Fail;
+    /// <summary>Alias for <c>IsFail</c>, for FluentResults-style code.</summary>
+    public bool IsFailure => IsFail;
 }
 
 
@@ -99,7 +95,7 @@ public static class ResultOf
     /// var result = ResultOf.Ok&lt;int, string&gt;(42);
     /// </code>
     /// </example>
-    public static ResultOf<T, E> Ok<T, E>(T value) => new ResultOf<T, E>.Ok(value);
+    public static ResultOf<T, E> Ok<T, E>(T value) => new ResultOf<T, E>.Ok(new Ok<T>(value));
 
     /// <summary>
     /// Creates a failed result with a typed error.
@@ -113,7 +109,7 @@ public static class ResultOf
     /// var result = ResultOf.Fail&lt;int, string&gt;("error");
     /// </code>
     /// </example>
-    public static ResultOf<T, E> Fail<T, E>(E error) => new ResultOf<T, E>.Fail(error);
+    public static ResultOf<T, E> Fail<T, E>(E error) => new ResultOf<T, E>.Fail(new Fail<E>(error));
 
     /// <summary>
     /// Creates a successful result with a value (using string as error type).
@@ -126,7 +122,7 @@ public static class ResultOf
     /// var result = ResultOf.Ok(42); // ResultOf&lt;int, string&gt;
     /// </code>
     /// </example>
-    public static ResultOf<T, string> Ok<T>(T value) => new ResultOf<T, string>.Ok(value);
+    public static ResultOf<T, string> Ok<T>(T value) => new ResultOf<T, string>.Ok(new Ok<T>(value));
 
     /// <summary>
     /// Creates a failed result with a string error message.
@@ -139,7 +135,8 @@ public static class ResultOf
     /// var result = ResultOf.Fail&lt;int&gt;("Not found"); // ResultOf&lt;int, string&gt;
     /// </code>
     /// </example>
-    public static ResultOf<T, string> Fail<T>(string error) => new ResultOf<T, string>.Fail(error);
+    public static ResultOf<T, string> Fail<T>(string error)
+        => new ResultOf<T, string>.Fail(new Fail<string>(error));
 
     /// <summary>
     /// Collects validation errors by running all validators and accumulating failures.

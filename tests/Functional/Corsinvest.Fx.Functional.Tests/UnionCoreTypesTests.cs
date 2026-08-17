@@ -42,4 +42,48 @@ public class UnionCoreTypesTests
     {
         Assert.Equal(10, Option.Some(5).Map(x => x * 2).GetValueOr(0));
     }
+
+    [Fact]
+    public void ResultOf_Ok_CarriesTheValue()
+    {
+        var result = ResultOf.Ok<int, string>(42);
+
+        Assert.True(result.IsOk);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(42, result.Match(ok => ok.Value, fail => 0));
+    }
+
+    [Fact]
+    public void ResultOf_Fail_CarriesTheError()
+    {
+        var result = ResultOf.Fail<int, string>("boom");
+
+        Assert.True(result.IsFail);
+        Assert.True(result.IsFailure);
+        Assert.Equal("boom", result.Match(ok => "", fail => fail.ErrorValue));
+    }
+
+    [Fact]
+    public void ResultOf_SupportsNativeSwitch()
+    {
+        ResultOf<int, string> result = ResultOf.Ok<int, string>(7);
+
+        var value = result switch
+        {
+            ResultOf<int, string>.Ok(var ok) => ok.Value,
+            ResultOf<int, string>.Fail => -1
+        };
+
+        Assert.Equal(7, value);
+    }
+
+    [Fact]
+    public void ResultOf_BindStillShortCircuits()
+    {
+        var result = ResultOf.Ok<int, string>(1)
+                             .Bind(x => ResultOf.Fail<int, string>("stop"))
+                             .Bind(x => ResultOf.Ok<int, string>(x + 1));
+
+        Assert.Equal("stop", result.Match(ok => "", fail => fail.ErrorValue));
+    }
 }
