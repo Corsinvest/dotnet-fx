@@ -135,7 +135,7 @@ namespace Corsinvest.Fx.Functional
         if (caseTypes.Length == 0) { return null; }
 
         var overrides = ReadCaseNameOverrides(root);
-        var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, out var hasNameCollision);
+        var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, root.TypeParameters, out var hasNameCollision);
 
         // Duplicate CLR types make duplicate conversion operators illegal (CS0557). Named tuples
         // with different element names, e.g. (int X, int Y) and (int Row, int Col), are distinct
@@ -367,11 +367,11 @@ namespace Corsinvest.Fx.Functional
             if (attribute.ConstructorArguments.Length != 1) { continue; }
             if (attribute.ConstructorArguments[0].Value is not string name) { continue; }
 
-            // Key on the original definition: the attribute must name a closed type (Some<int>),
-            // since an attribute type argument cannot mention the root's own type parameter
-            // (CS8968), while the case type from IUnion<...> arrives constructed over that
-            // parameter instead (Some<T>). Both share one original definition (Some<>).
-            overrides[attributeClass.TypeArguments[0].OriginalDefinition] = name;
+            // Keyed on the exact type the attribute names (e.g. the closed stand-in Some<int>).
+            // UnionCaseNaming.FindOverride is responsible for the original-definition fallback
+            // that lets this match a case type which closes over the root's own type parameter
+            // (Some<T>) - see its remarks for why that fallback must not apply unconditionally.
+            overrides[attributeClass.TypeArguments[0]] = name;
         }
 
         return overrides;
