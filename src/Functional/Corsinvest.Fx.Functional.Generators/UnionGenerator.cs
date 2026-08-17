@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Collections.Immutable;
 using System.Text;
 
 namespace Corsinvest.Fx.Functional;
@@ -32,6 +33,18 @@ public class UnionGenerator : IIncrementalGenerator
         category: "Design",
         defaultSeverity: DiagnosticSeverity.Error,
         isEnabledByDefault: true);
+
+    /// <summary>
+    /// Like <see cref="SymbolDisplayFormat.FullyQualifiedFormat"/>, but without
+    /// <see cref="SymbolDisplayMiscellaneousOptions.UseSpecialTypes"/>: generated code needs the
+    /// CLR name for special types too, e.g. <c>global::System.Int32</c> rather than <c>int</c>,
+    /// so it lines up with the wrapper names <see cref="UnionCaseNaming"/> derives from them.
+    /// </summary>
+    private static readonly SymbolDisplayFormat FullyQualifiedNoKeywordsFormat = new(
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters,
+        miscellaneousOptions: SymbolDisplayMiscellaneousOptions.EscapeKeywordIdentifiers);
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -67,6 +80,41 @@ namespace Corsinvest.Fx.Functional
         context.RegisterSourceOutput(
             unionDeclarations,
             static (spc, genContext) => ProcessUnionGeneration(spc, genContext!));
+
+        // Generic attribute path: [Union<T1, ..., Tn>] on a root with no nested cases.
+        // ForAttributeWithMetadataName needs a compile-time constant metadata name, which bakes in
+        // the arity, so each arity from 1 to 8 needs its own registration.
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`1");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`2");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`3");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`4");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`5");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`6");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`7");
+        RegisterGenericUnionProvider(context, "Corsinvest.Fx.Functional.UnionAttribute`8");
+    }
+
+    /// <summary>
+    /// Wires up the generic <c>[Union&lt;...&gt;]</c> pipeline for one attribute arity.
+    /// </summary>
+    /// <param name="context">The generator initialization context to register against.</param>
+    /// <param name="attributeMetadataName">
+    /// The fully-qualified metadata name of the arity-specific attribute, e.g.
+    /// <c>Corsinvest.Fx.Functional.UnionAttribute`2</c>.
+    /// </param>
+    private static void RegisterGenericUnionProvider(IncrementalGeneratorInitializationContext context,
+                                                      string attributeMetadataName)
+    {
+        var genericUnions = context.SyntaxProvider
+            .ForAttributeWithMetadataName(
+                attributeMetadataName,
+                predicate: static (node, _) => node is RecordDeclarationSyntax,
+                transform: static (ctx, _) => BuildGenericUnionInfo(ctx))
+            .Where(static info => info is not null);
+
+        context.RegisterSourceOutput(
+            genericUnions,
+            static (spc, info) => GenerateGenericUnion(spc, info!));
     }
 
     private static bool IsUnionCandidate(SyntaxNode node)
@@ -505,6 +553,226 @@ namespace Corsinvest.Fx.Functional
             sb.AppendLine("            return true;");
             sb.AppendLine("        }");
             sb.AppendLine($"        {variant.Name.ToLowerInvariant()} = default!;");
+            sb.AppendLine("        return false;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+    }
+
+    // ---- Generic [Union<T1..T8>] path --------------------------------------
+
+    /// <summary>
+    /// Builds the model for one <c>[Union&lt;...&gt;]</c> declaration from the generator's
+    /// attribute-target context, or null when the target does not describe a usable union.
+    /// </summary>
+    /// <param name="context">The attribute target context supplied by <c>ForAttributeWithMetadataName</c>.</param>
+    private static GenericUnionInfo? BuildGenericUnionInfo(GeneratorAttributeSyntaxContext context)
+    {
+        if (context.TargetSymbol is not INamedTypeSymbol root) { return null; }
+
+        var attribute = context.Attributes[0];
+        if (attribute.AttributeClass is not { } attributeClass) { return null; }
+
+        var caseTypes = attributeClass.TypeArguments;
+        if (caseTypes.Length == 0) { return null; }
+
+        var overrides = ReadCaseNameOverrides(root);
+        var names = UnionCaseNaming.ResolveNames(caseTypes, overrides, out var hasNameCollision);
+
+        // Duplicate CLR types make duplicate conversion operators illegal (CS0557).
+        var distinctClrTypes = caseTypes.Distinct(SymbolEqualityComparer.Default).Count();
+
+        return new GenericUnionInfo(
+            @namespace: root.ContainingNamespace.IsGlobalNamespace
+                ? string.Empty
+                : root.ContainingNamespace.ToDisplayString(),
+            typeName: root.Name,
+            typeParameters: root.TypeParameters.Length == 0
+                ? string.Empty
+                : "<" + string.Join(", ", root.TypeParameters.Select(p => p.Name)) + ">",
+            caseTypes: caseTypes,
+            caseNames: names,
+            emitImplicitConversions: distinctClrTypes == caseTypes.Length,
+            hasNameCollision: hasNameCollision,
+            location: root.Locations.FirstOrDefault());
+    }
+
+    /// <summary>
+    /// Reads the <c>[UnionCaseName&lt;T&gt;("...")]</c> overrides declared on a union root.
+    /// </summary>
+    /// <param name="root">The union root type to inspect.</param>
+    private static IReadOnlyDictionary<ITypeSymbol, string> ReadCaseNameOverrides(INamedTypeSymbol root)
+    {
+        var overrides = new Dictionary<ITypeSymbol, string>(SymbolEqualityComparer.Default);
+
+        foreach (var attribute in root.GetAttributes())
+        {
+            if (attribute.AttributeClass is not { Name: "UnionCaseNameAttribute" } attributeClass) { continue; }
+            if (attributeClass.TypeArguments.Length != 1) { continue; }
+            if (attribute.ConstructorArguments.Length != 1) { continue; }
+            if (attribute.ConstructorArguments[0].Value is not string name) { continue; }
+
+            overrides[attributeClass.TypeArguments[0]] = name;
+        }
+
+        return overrides;
+    }
+
+    /// <summary>
+    /// Emits the generated source for one generic <c>[Union&lt;...&gt;]</c> declaration.
+    /// </summary>
+    /// <param name="context">The source production context to add the generated file to.</param>
+    /// <param name="info">The resolved union model built by <see cref="BuildGenericUnionInfo"/>.</param>
+    private static void GenerateGenericUnion(SourceProductionContext context, GenericUnionInfo info)
+    {
+        // UNION008/UNION009 (unresolved name collisions) are reported by a later task; for now,
+        // simply skip generation so the union does not compile into a broken hierarchy.
+        if (info.HasNameCollision) { return; }
+
+        var sb = new StringBuilder();
+
+        sb.AppendLine("// <auto-generated/>");
+        sb.AppendLine("#nullable enable");
+        sb.AppendLine();
+        sb.AppendLine("using System;");
+        sb.AppendLine("using System.Threading.Tasks;");
+        sb.AppendLine();
+
+        if (!string.IsNullOrEmpty(info.Namespace))
+        {
+            sb.AppendLine($"namespace {info.Namespace};");
+            sb.AppendLine();
+        }
+
+        var root = info.TypeName + info.TypeParameters;
+
+        sb.AppendLine($"public abstract partial record {root}");
+        sb.AppendLine("{");
+        sb.AppendLine($"    private {info.TypeName}() {{ }}");
+        sb.AppendLine();
+
+        var qualified = info.CaseTypes
+            .Select(t => t.ToDisplayString(FullyQualifiedNoKeywordsFormat))
+            .ToImmutableArray();
+
+        // Wrappers
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            sb.AppendLine($"    public sealed partial record {info.CaseNames[i]}({qualified[i]} Value) : {root};");
+        }
+        sb.AppendLine();
+
+        // Implicit conversions
+        if (info.EmitImplicitConversions)
+        {
+            for (var i = 0; i < info.CaseNames.Length; i++)
+            {
+                sb.AppendLine($"    public static implicit operator {root}({qualified[i]} value) => new {info.CaseNames[i]}(value);");
+            }
+            sb.AppendLine();
+        }
+
+        // Is* properties
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"    public bool Is{name} => this is {name};");
+        }
+        sb.AppendLine();
+
+        GenerateGenericMatch(sb, info, qualified, root);
+        GenerateGenericTryGet(sb, info, qualified);
+
+        sb.AppendLine("}");
+
+        context.AddSource($"{info.TypeName}.Union.g.cs", sb.ToString());
+    }
+
+    /// <summary>
+    /// Appends the synchronous, void, and async <c>Match</c> overloads for a generic union.
+    /// </summary>
+    /// <param name="sb">The source builder to append to.</param>
+    /// <param name="info">The union model supplying case names.</param>
+    /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
+    /// <param name="root">The union root type name including type parameters.</param>
+    private static void GenerateGenericMatch(StringBuilder sb,
+                                             GenericUnionInfo info,
+                                             ImmutableArray<string> qualified,
+                                             string root)
+    {
+        // Match with a result
+        sb.AppendLine("    public TResult Match<TResult>(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, TResult> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("        => this switch");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            {name} wrapped => on{name}(wrapped.Value),");
+        }
+        sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
+        sb.AppendLine("        };");
+        sb.AppendLine();
+
+        // Match without a result
+        sb.AppendLine("    public void Match(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Action<{qualified[i]}> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (this)");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            case {name} wrapped: on{name}(wrapped.Value); break;");
+        }
+        sb.AppendLine("            default: throw new InvalidOperationException(\"Invalid union state\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // Async match
+        sb.AppendLine("    public async Task<TResult> MatchAsync<TResult>(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, Task<TResult>> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("        => this switch");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            {name} wrapped => await on{name}(wrapped.Value),");
+        }
+        sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
+        sb.AppendLine("        };");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Appends one <c>TryGetX</c> method per case type for a generic union.
+    /// </summary>
+    /// <param name="sb">The source builder to append to.</param>
+    /// <param name="info">The union model supplying case names.</param>
+    /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
+    private static void GenerateGenericTryGet(StringBuilder sb,
+                                              GenericUnionInfo info,
+                                              ImmutableArray<string> qualified)
+    {
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var name = info.CaseNames[i];
+            sb.AppendLine($"    public bool TryGet{name}(out {qualified[i]} value)");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        if (this is {name} wrapped) {{ value = wrapped.Value; return true; }}");
+            sb.AppendLine("        value = default!;");
             sb.AppendLine("        return false;");
             sb.AppendLine("    }");
             sb.AppendLine();
