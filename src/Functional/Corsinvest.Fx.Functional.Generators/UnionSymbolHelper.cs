@@ -15,11 +15,25 @@ public static class UnionSymbolHelper
     public const string UnionAttributeMetadataName = "Corsinvest.Fx.Functional.UnionAttribute";
 
     /// <summary>
-    /// Returns true when <paramref name="type"/> is a union root, i.e. carries [Union].
+    /// Returns true when <paramref name="type"/> is a union root, i.e. carries [Union] or any
+    /// arity of [Union&lt;...&gt;].
     /// </summary>
     public static bool IsUnionRoot(ITypeSymbol? type)
-        => type?.GetAttributes()
-                  .Any(a => a.AttributeClass?.ToDisplayString() == UnionAttributeMetadataName) == true;
+        => type is not null
+           && type.GetAttributes().Any(a => IsUnionAttribute(a.AttributeClass));
+
+    /// <summary>
+    /// True for the non-generic <c>[Union]</c> and for any arity of <c>[Union&lt;...&gt;]</c>.
+    /// </summary>
+    private static bool IsUnionAttribute(INamedTypeSymbol? attributeClass)
+    {
+        if (attributeClass is null) { return false; }
+
+        if (attributeClass.ToDisplayString() == UnionAttributeMetadataName) { return true; }
+
+        return attributeClass is { Name: "UnionAttribute", IsGenericType: true }
+               && attributeClass.ContainingNamespace?.ToDisplayString() == "Corsinvest.Fx.Functional";
+    }
 
     /// <summary>
     /// Walks up the containing-type chain to find the union root that declares

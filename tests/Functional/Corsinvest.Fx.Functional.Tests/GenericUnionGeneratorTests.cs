@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
 using System.Collections.Immutable;
 
 namespace Corsinvest.Fx.Functional.Tests;
@@ -435,6 +436,54 @@ public class GenericUnionGeneratorTests
         Assert.Empty(diagnostics.Where(d => d.Id == "UNION010"));
     }
 
+    [Fact]
+    public void Analyzer_ReportsMissingCase_OnGenericUnion()
+    {
+        var diagnostics = CompileWithGenerator($$"""
+            {{Cases}}
+
+            [Union<Cat, Dog>]
+            public abstract partial record Pet;
+
+            public static class Usage
+            {
+                public static string Describe(Pet pet) => pet switch
+                {
+                    Pet.Cat(var cat) => cat.Name,
+                    _ => "?"
+                };
+            }
+            """,
+            withAnalyzers: true);
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION004"));
+        Assert.Contains("Dog", diagnostic.GetMessage());
+    }
+
+    [Fact]
+    public void Suppressor_SuppressesCS8509_OnCompleteGenericUnionSwitch()
+    {
+        var diagnostics = CompileWithGenerator($$"""
+            {{Cases}}
+
+            [Union<Cat, Dog>]
+            public abstract partial record Pet;
+
+            public static class Usage
+            {
+                public static string Describe(Pet pet) => pet switch
+                {
+                    Pet.Cat(var cat) => cat.Name,
+                    Pet.Dog(var dog) => dog.Name
+                };
+            }
+            """,
+            withAnalyzers: true);
+
+        Assert.All(diagnostics.Where(d => d.Id == "CS8509"),
+                   d => Assert.True(d.IsSuppressed));
+    }
+
     // ---- infrastructure ----------------------------------------------------
 
     private static string Generate(string source)
@@ -452,14 +501,22 @@ public class GenericUnionGeneratorTests
             .SelectMany(r => r.Diagnostics)
             .ToImmutableArray();
 
-    private static ImmutableArray<Diagnostic> CompileWithGenerator(string source)
+    private static ImmutableArray<Diagnostic> CompileWithGenerator(string source, bool withAnalyzers = false)
     {
         var compilation = CreateCompilation(source);
 
         CSharpGeneratorDriver.Create(new UnionGenerator())
             .RunGeneratorsAndUpdateCompilation(compilation, out var output, out _);
 
-        return output.GetDiagnostics();
+        if (!withAnalyzers) { return output.GetDiagnostics(); }
+
+        return output
+            .WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(
+                new UnionExhaustivenessAnalyzer(),
+                new UnionExhaustivenessSuppressor()))
+            .GetAllDiagnosticsAsync()
+            .GetAwaiter()
+            .GetResult();
     }
 
     private static ImmutableArray<SyntaxTree> RunGenerator(string source)

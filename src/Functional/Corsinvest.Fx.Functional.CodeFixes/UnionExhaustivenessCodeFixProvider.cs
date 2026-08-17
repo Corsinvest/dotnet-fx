@@ -211,6 +211,12 @@ public class UnionExhaustivenessCodeFixProvider : CodeFixProvider
     /// Builds <c>Union.Case(var a, var b)</c>, falling back to a bare type pattern for a case
     /// with no positional members - there is nothing to deconstruct there.
     /// </summary>
+    /// <remarks>
+    /// A generic-union wrapper (see <c>UnionAttribute&lt;T1..T8&gt;</c>) has exactly one positional
+    /// member, always called <c>Value</c>. Naming the local <c>value</c> in that case would be
+    /// uninformative, so the variable is named after the wrapped type instead, e.g.
+    /// <c>Pet.Cat(var cat)</c> rather than <c>Pet.Cat(var value)</c>.
+    /// </remarks>
     private static PatternSyntax CreatePattern(INamedTypeSymbol variant, SemanticModel semanticModel, int position)
     {
         var typeSyntax = ParseTypeName(variant.ToMinimalDisplayString(semanticModel, position));
@@ -218,8 +224,20 @@ public class UnionExhaustivenessCodeFixProvider : CodeFixProvider
 
         if (parameters.Count == 0) { return TypePattern(typeSyntax); }
 
-        var subpatterns = parameters.Select(p =>
-            Subpattern(VarPattern(SingleVariableDesignation(Identifier(SafeIdentifier(p.Name))))));
+        IEnumerable<SubpatternSyntax> subpatterns;
+        if (parameters.Count == 1 && parameters[0].Name == "Value")
+        {
+            subpatterns = new[]
+            {
+                Subpattern(VarPattern(SingleVariableDesignation(
+                    Identifier(SafeIdentifier(parameters[0].Type.Name)))))
+            };
+        }
+        else
+        {
+            subpatterns = parameters.Select(p =>
+                Subpattern(VarPattern(SingleVariableDesignation(Identifier(SafeIdentifier(p.Name))))));
+        }
 
         return RecursivePattern(
             typeSyntax,
