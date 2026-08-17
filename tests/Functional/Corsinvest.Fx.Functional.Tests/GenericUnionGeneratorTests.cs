@@ -336,11 +336,62 @@ public class GenericUnionGeneratorTests
             """;
 
         var diagnostics = GetGeneratorDiagnostics(source);
-        Assert.Single(diagnostics.Where(d => d.Id == "UNION009"));
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION009"));
+
+        // The message must name the colliding cases, not just the union, so a union with several
+        // cases doesn't leave the developer hunting for which pair actually collides.
+        Assert.Contains("Point", diagnostic.GetMessage());
+        Assert.Contains("Cell", diagnostic.GetMessage());
 
         // Without conversions the generated code still compiles.
         var generated = Generate(source);
         Assert.DoesNotContain("implicit operator", generated);
+    }
+
+    [Fact]
+    public void Reports_UNION009_WhenNestedTuplesShareOneClrTypeAfterElementNamesAreStripped()
+    {
+        // (int X, (int A, int B) Y) and (int Row, (int C, int D) Col) both erase to
+        // ValueTuple<int, ValueTuple<int, int>>: TupleUnderlyingType alone only strips element
+        // names at the outer level, leaving the inner tuples' names intact, so this only collides
+        // once canonicalization recurses into nested type arguments.
+        var source = """
+            using Corsinvest.Fx.Functional;
+
+            [Union<(int X, (int A, int B) Y), (int Row, (int C, int D) Col)>]
+            [UnionCaseName<(int X, (int A, int B) Y)>("Outer")]
+            [UnionCaseName<(int Row, (int C, int D) Col)>("Inner")]
+            public abstract partial record Nested;
+            """;
+
+        var diagnostics = GetGeneratorDiagnostics(source);
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION009"));
+        Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
+        Assert.Contains("Outer", diagnostic.GetMessage());
+        Assert.Contains("Inner", diagnostic.GetMessage());
+
+        // Without conversions the generated code still compiles (no colliding operator overloads).
+        var generated = Generate(source);
+        Assert.DoesNotContain("implicit operator", generated);
+    }
+
+    [Fact]
+    public void DoesNotReport_UNION009_WhenTupleShapesAreGenuinelyDifferent()
+    {
+        // Guards against an over-eager canonicalization: (int, int) and (int, string) must keep
+        // comparing as distinct CLR types, so conversions are still generated for both.
+        var source = """
+            using Corsinvest.Fx.Functional;
+
+            [Union<(int, int), (int, string)>]
+            public abstract partial record Mixed;
+            """;
+
+        var diagnostics = GetGeneratorDiagnostics(source);
+        Assert.Empty(diagnostics.Where(d => d.Id == "UNION009"));
+
+        var generated = Generate(source);
+        Assert.Contains("implicit operator", generated);
     }
 
     [Fact]

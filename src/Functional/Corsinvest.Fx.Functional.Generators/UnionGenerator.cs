@@ -46,8 +46,8 @@ public class UnionGenerator : IIncrementalGenerator
     private static readonly DiagnosticDescriptor DuplicateCaseTypeDescriptor = new(
         id: "UNION009",
         title: "Implicit conversions omitted",
-        messageFormat: "Union '{0}' has case types that share one CLR type, so implicit "
-                     + "conversions were not generated; construct the case wrappers directly",
+        messageFormat: "Union '{0}' has case types {1} that share one CLR type, so implicit "
+                     + "conversions were not generated for them; construct those case wrappers directly",
         category: "Design",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
@@ -610,11 +610,10 @@ namespace Corsinvest.Fx.Functional
         // Duplicate CLR types make duplicate conversion operators illegal (CS0557). Named tuples
         // with different element names, e.g. (int X, int Y) and (int Row, int Col), are distinct
         // to SymbolEqualityComparer but erase to the same metadata type ValueTuple<int, int>, so
-        // compare tuples by their underlying (unnamed) type instead of the tuple symbol itself.
+        // compare by a canonical form with tuple element names stripped at every nesting level
+        // (GetCanonicalClrType) instead of the case type symbol itself.
         var distinctClrTypes = caseTypes
-            .Select(t => t is INamedTypeSymbol { IsTupleType: true } tuple
-                ? tuple.TupleUnderlyingType ?? t
-                : t)
+            .Select(GetCanonicalClrType)
             .Distinct(SymbolEqualityComparer.Default)
             .Count();
 
@@ -631,6 +630,73 @@ namespace Corsinvest.Fx.Functional
             emitImplicitConversions: distinctClrTypes == caseTypes.Length,
             hasNameCollision: hasNameCollision,
             location: root.Locations.FirstOrDefault());
+    }
+
+    /// <summary>
+    /// Reduces a type to the form the CLR actually sees, so that two case types compare equal
+    /// exactly when they would produce colliding metadata signatures. Tuple element names are a
+    /// source-only, compiler-synthesized annotation (via <see cref="System.Runtime.CompilerServices.TupleElementNamesAttribute"/>)
+    /// that <see cref="SymbolEqualityComparer"/> still distinguishes; stripping only the
+    /// outermost tuple's names (via <see cref="INamedTypeSymbol.TupleUnderlyingType"/>) is not
+    /// enough, because a tuple nested inside another tuple's type arguments — or inside any other
+    /// generic type's type arguments — keeps its own element names even after the outer
+    /// substitution. This recurses through every generic type argument so nested tuples are
+    /// stripped at every level, e.g. both <c>(int X, (int A, int B) Y)</c> and
+    /// <c>(int Row, (int C, int D) Col)</c> canonicalize to the same
+    /// <c>ValueTuple&lt;int, ValueTuple&lt;int, int&gt;&gt;</c>. Non-tuple, non-generic types
+    /// (and generic types with no tuple anywhere in their arguments) are returned unchanged, so
+    /// this can never make two genuinely different CLR types compare equal - only ever collapses
+    /// distinctions that tuple element names introduce.
+    /// </summary>
+    /// <param name="type">The type to canonicalize.</param>
+    private static ITypeSymbol GetCanonicalClrType(ITypeSymbol type)
+    {
+        if (type is not INamedTypeSymbol named) { return type; }
+
+        // A tuple's TupleUnderlyingType is itself IsTupleType == true in Roslyn (the unnamed
+        // ValueTuple<...> instantiation is still "a tuple type", just without friendly element
+        // names) - recursing back through GetCanonicalClrType on it would recurse forever. Strip
+        // the name layer at most once per level, then fall through to the general generic-type
+        // branch below to canonicalize its type arguments (which is what actually reaches any
+        // nested tuple).
+        var underlying = named.IsTupleType ? named.TupleUnderlyingType ?? named : named;
+
+        if (underlying.IsGenericType && underlying.TypeArguments.Length > 0)
+        {
+            var canonicalArguments = underlying.TypeArguments
+                .Select(GetCanonicalClrType)
+                .ToArray();
+
+            // Reconstructing with unchanged arguments returns an equivalent symbol, so it is safe
+            // to always go through Construct rather than special-casing "nothing changed".
+            return underlying.ConstructedFrom.Construct(canonicalArguments);
+        }
+
+        return underlying;
+    }
+
+    /// <summary>
+    /// Finds the wrapper (case) names whose case types canonicalize to a CLR type shared with at
+    /// least one other case, in declaration order, for UNION009's message.
+    /// </summary>
+    /// <param name="info">The resolved union model to inspect.</param>
+    private static IEnumerable<string> GetCasesSharingAClrType(GenericUnionInfo info)
+    {
+        var canonical = info.CaseTypes.Select(GetCanonicalClrType).ToArray();
+
+        var duplicatedClrTypes = canonical
+            .GroupBy(t => t, SymbolEqualityComparer.Default)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToImmutableHashSet(SymbolEqualityComparer.Default);
+
+        for (var i = 0; i < canonical.Length; i++)
+        {
+            if (duplicatedClrTypes.Contains(canonical[i]))
+            {
+                yield return info.CaseNames[i];
+            }
+        }
     }
 
     /// <summary>
@@ -670,8 +736,10 @@ namespace Corsinvest.Fx.Functional
 
         if (!info.EmitImplicitConversions)
         {
+            var collidingCaseNames = string.Join(", ", GetCasesSharingAClrType(info));
+
             context.ReportDiagnostic(Diagnostic.Create(
-                DuplicateCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName));
+                DuplicateCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName, collidingCaseNames));
         }
 
         // A generic root's nested wrapper shares the attribute's own scope: if a wrapper name
