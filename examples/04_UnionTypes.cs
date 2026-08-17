@@ -2,14 +2,17 @@ using Corsinvest.Fx.Functional;
 
 namespace Corsinvest.Fx.Examples;
 
-// Union: Payment methods
-[Union]
-public partial record PaymentMethod
-{
-    public partial record CreditCard(string Number, string ExpiryDate);
-    public partial record PayPal(string Email);
-    public partial record BankTransfer(string Iban, string Bic);
-}
+// Payment methods: the case types are ordinary records, declared on their own, so they can be
+// reused in other unions and passed around independently of PaymentMethod.
+public record CreditCard(string Number, string ExpiryDate);
+public record PayPal(string Email);
+public record BankTransfer(string Iban, string Bic);
+
+// [Union<...>] composes existing types. The generator emits one sealed nested wrapper per case
+// (PaymentMethod.CreditCard and so on), each deriving from PaymentMethod, which is what keeps
+// the hierarchy closed and lets a plain switch match on it.
+[Union<CreditCard, PayPal, BankTransfer>]
+public abstract partial record PaymentMethod;
 
 // Union: API response states
 [Union]
@@ -32,6 +35,15 @@ public partial record Shape
 // Data models
 public record UserData(int Id, string Name, string Email);
 
+// This file shows both ways to declare a union.
+//
+// PaymentMethod uses [Union<CreditCard, PayPal, BankTransfer>]: the cases are external types,
+// declared on their own, so the same type can take part in more than one union.
+//
+// ApiResponse and Shape use [Union] with nested cases: the cases exist only as part of the
+// union. That form is also the only one that can express a union whose cases close over the
+// root's own type parameter - which is why Option<T> and ResultOf<T,E> use it.
+
 /// <summary>
 /// Example 04: Union Types - Discriminated Unions
 ///
@@ -50,11 +62,12 @@ public static class UnionTypes
         // Example 1: Payment methods
         Console.WriteLine("1️⃣  Payment Methods\n");
 
+        // The generated implicit conversions mean a case type can be assigned directly.
         var payments = new PaymentMethod[]
         {
-            new PaymentMethod.CreditCard("1234-5678-9012-3456", "12/25"),
-            new PaymentMethod.PayPal("alice@example.com"),
-            new PaymentMethod.BankTransfer("IT60X0542811101000000123456", "BCITITMMXXX")
+            new CreditCard("1234-5678-9012-3456", "12/25"),
+            new PayPal("alice@example.com"),
+            new BankTransfer("IT60X0542811101000000123456", "BCITITMMXXX")
         };
 
         foreach (var payment in payments)
@@ -126,20 +139,21 @@ public static class UnionTypes
         }
     }
 
-    // Union variants are real types, so a plain switch works alongside Match().
+    // Union cases are real types, so a plain switch works alongside Match().
     //
-    // Note there is no discard arm: normally the compiler would demand one (CS8509),
-    // because it treats reference-type hierarchies as open. The UNION005 suppressor
-    // knows this hierarchy is closed and stands the warning down.
+    // Note there is no discard arm: normally the compiler would demand one (CS8509), because it
+    // treats reference-type hierarchies as open. The UNION005 suppressor knows this hierarchy is
+    // closed and stands the warning down.
     //
-    // Add a fourth variant to PaymentMethod and UNION004 flags every switch that
-    // does not handle it - the failure a discard arm would have hidden.
+    // Add a fourth case type to the [Union<...>] list and UNION004 flags every switch that does
+    // not handle it - the failure a discard arm would have hidden. The "Add missing union cases"
+    // code fix then fills the arm in.
     private static string DescribePayment(PaymentMethod payment)
         => payment switch
         {
-            PaymentMethod.CreditCard(var number, _) => $"💳 Card ending in {number[^4..]}",
-            PaymentMethod.PayPal(var email) => $"🅿️  PayPal {email}",
-            PaymentMethod.BankTransfer(var iban, _) => $"🏦 Transfer to {iban}"
+            PaymentMethod.CreditCard(var card) => $"💳 Card ending in {card.Number[^4..]}",
+            PaymentMethod.PayPal(var payPal) => $"🅿️  PayPal {payPal.Email}",
+            PaymentMethod.BankTransfer(var transfer) => $"🏦 Transfer to {transfer.Iban}"
         };
 
     // Unlike the positional Match(), switch arms name the type they handle, so
