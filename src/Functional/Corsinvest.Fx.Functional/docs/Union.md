@@ -238,14 +238,20 @@ var name = box.Match(
 );
 ```
 
-#### `UNION009`: implicit conversions omitted for duplicate CLR types
+#### `UNION009`: implicit conversions omitted for the whole union
 
 Two cases can have distinct wrapper names yet still erase to the *same* CLR type once generics
 and tuple element names are stripped away - for example two named tuples that both become
 `ValueTuple<int, int>`. The generator cannot emit two `implicit operator Root(ValueTuple<int,
-int>)` overloads (that is `CS0557`, ambiguous user-defined conversions), so when this happens it
-omits the implicit conversion for **every** case that shares the CLR type and reports
-**UNION009** instead - construct those wrappers directly with `new Root.CaseName(value)`.
+int>)` overloads (that is `CS0557`, ambiguous user-defined conversions), so it falls back to a
+single all-or-nothing switch: `EmitImplicitConversions` is one bool for the entire union, not one
+per case. When any two cases collide, **no case in that union gets an implicit conversion** -
+including cases whose CLR type collides with nothing at all - and the generator reports
+**UNION009** once, naming the colliding pair, instead of silently emitting a broken subset. In a
+union with three or more cases this is easy to misread as "only the colliding pair loses its
+conversion" - it is not. Construct **every** case wrapper directly with `new Root.CaseName(value)`
+once the union has any collision, even for the cases that were never part of it.
+
 In practice this is hard to hit with hand-written code, because named tuples cannot appear as
 attribute type arguments at all (`CS8970`, above); it mainly guards against generic case types
 whose type arguments happen to collide after erasure.
@@ -1175,7 +1181,7 @@ an `object?` (which allocates anyway).
 | `UNION006` | *(suppressor)* | Suppresses `IDE0010` ("populate switch statement") when every case is handled |
 | `UNION007` | *(suppressor)* | Suppresses `IDE0072` ("populate switch expression") when every case is handled |
 | `UNION008` | Error | `[Union<T1..T8>]` case types resolve to the same wrapper name, even after namespace-prefix disambiguation |
-| `UNION009` | Warning | Two `[Union<T1..T8>]` cases share one CLR type once tuple/generic erasure is applied, so their implicit conversions were omitted |
+| `UNION009` | Warning | Two `[Union<T1..T8>]` cases share one CLR type once tuple/generic erasure is applied, so implicit conversions were omitted for the **whole union**, not just the colliding pair |
 | `UNION010` | Warning | A generic root's default wrapper name shadows its own case type; add `[UnionCaseName<T>]` before the compiler reports `CS8968` |
 
 `UNION001`-`UNION003` are structural errors and cannot be configured away: without them the
