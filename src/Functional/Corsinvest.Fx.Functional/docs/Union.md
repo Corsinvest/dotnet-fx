@@ -10,7 +10,8 @@ The source generator creates:
 
 - Type-safe construction
 - Exhaustive pattern matching via `Match()` method
-- Compile-time verification of all cases
+- Native `switch` support with compile-time exhaustiveness checking (see [Switch Expressions](#switch-expressions))
+- `Is{Case}` properties and `TryGet{Case}` methods
 
 ## Basic Usage
 
@@ -49,6 +50,292 @@ var area = CalculateArea(circle); // 78.54
 ```
 
 The `Match()` method is **exhaustive** - you must handle all cases, or it won't compile.
+
+## Switch Expressions
+
+Union cases are real nested types, so you can use a plain C# `switch` instead of `Match()`:
+
+```csharp
+double CalculateArea(Shape shape) => shape switch
+{
+    Shape.Circle(var radius) => Math.PI * radius * radius,
+    Shape.Rectangle(var width, var height) => width * height,
+    Shape.Triangle(var b, var h) => 0.5 * b * h
+};
+```
+
+Note there is **no discard arm** (`_`), and this still compiles. That takes some explaining.
+
+### The problem with a discard arm
+
+By default, the C# compiler treats reference-type hierarchies as open: another assembly could always add a subtype. So it emits `CS8509` ("switch expression is not exhaustive") and pushes you toward a discard arm.
+
+That discard is where exhaustiveness goes to die:
+
+```csharp
+// Later, someone adds Shape.Pentagon to the union.
+// This switch keeps compiling - and silently returns 0 for pentagons.
+double CalculateArea(Shape shape) => shape switch
+{
+    Shape.Circle c => Math.PI * c.Radius * c.Radius,
+    Shape.Rectangle r => r.Width * r.Height,
+    Shape.Triangle t => 0.5 * t.Base * t.Height,
+    _ => 0   // ← swallows the new case, no warning anywhere
+};
+```
+
+### How the package fixes it
+
+`[Union]` hierarchies **are** closed - the generator emits a private constructor on the root and seals every case, so nothing outside can derive from it. The package ships two analyzers that act on this:
+
+| ID | Kind | What it does |
+| --- | --- | --- |
+| **UNION004** | Warning | Reports union cases a `switch` does not handle, **by name** - with a code fix that adds them |
+| **UNION005** | Suppressor | Suppresses `CS8509` when every case is handled, so no discard arm is needed |
+| **UNION006/007** | Suppressor | Suppresses the IDE's "Add default case" suggestions (`IDE0010`, `IDE0072`) for the same reason |
+
+The suppressions matter as much as the warning: `CS8509`, `IDE0010` and `IDE0072` all steer you
+toward the discard arm that hides future cases. On a closed union that arm is unreachable code,
+so the package stands those suggestions down and lets UNION004 speak instead.
+
+Together they invert the default behaviour: the discard arm becomes unnecessary, and a missing case becomes loud.
+
+```csharp
+double CalculateArea(Shape shape) => shape switch
+{
+    Shape.Circle(var radius) => Math.PI * radius * radius,
+    Shape.Rectangle(var w, var h) => w * h
+    // warning UNION004: Switch on union 'Shape' does not handle variant 'Triangle'
+    // warning CS8509: switch expression is not exhaustive
+};
+```
+
+`CS8509` is only suppressed once every case is handled - an incomplete switch keeps both
+warnings, so it cannot slip through either way.
+
+Add `Shape.Pentagon` to the union and every `switch` that ignores it lights up - which is exactly what you want from a closed set of cases.
+
+### Code fix: fill in the missing cases
+
+`UNION004` ships with a code fix. Put the caret on the warning and pick **"Add missing union cases"**
+(<kbd>Ctrl</kbd>+<kbd>.</kbd> in Visual Studio, <kbd>Alt</kbd>+<kbd>Enter</kbd> in Rider):
+
+```csharp
+// before
+double CalculateArea(Shape shape) => shape switch
+{
+    Shape.Circle(var radius) => Math.PI * radius * radius
+};
+
+// after
+double CalculateArea(Shape shape) => shape switch
+{
+    Shape.Circle(var radius) => Math.PI * radius * radius,
+    Shape.Rectangle(var width, var height) => throw new System.NotImplementedException(),
+    Shape.Triangle(var @base, var height) => throw new System.NotImplementedException()
+};
+```
+
+Each added arm deconstructs its case, so the data is already in scope with names taken from the
+record's positional members - keywords are escaped (`var @base`). A case with no positional
+members gets a bare type pattern instead. The body is `throw new NotImplementedException()`, so an
+arm you forget to finish fails loudly rather than returning a plausible default.
+
+An existing discard arm stays last, keeping the added arms reachable. The fix also supports
+**Fix All** in document, project, or solution.
+
+It can be applied from the command line too:
+
+```bash
+dotnet format analyzers --diagnostics UNION004 --severity warn
+```
+
+Both work on switch **statements** too, which the compiler does not check for exhaustiveness at all:
+
+```csharp
+switch (shape)
+{
+    case Shape.Circle c: return Area(c);
+    case Shape.Rectangle r: return Area(r);
+    // warning UNION004: ... does not handle variant 'Triangle'
+}
+```
+
+### What counts as handling a case
+
+A pattern only counts when it matches **every** value of that case:
+
+| Pattern | Covers the case? |
+| --- | --- |
+| `Shape.Circle` | ✅ |
+| `Shape.Circle c` | ✅ |
+| `Shape.Circle { }` | ✅ |
+| `Shape.Circle(var r)` | ✅ all subpatterns irrefutable |
+| `Shape.Circle(_)` | ✅ |
+| `Shape.Circle or Shape.Rectangle` | ✅ both |
+| `Shape.Circle c when c.Radius > 0` | ❌ guarded, can fail |
+| `Shape.Circle { Radius: 5 }` | ❌ matches a subset |
+
+### Configuration
+
+`UNION004` is an ordinary analyzer rule, so it can be tuned per project or per file:
+
+```ini
+# .editorconfig
+dotnet_diagnostic.UNION004.severity = error       # none | silent | suggestion | warning | error
+```
+
+Under `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` a missing case fails the build.
+
+### Switch or Match?
+
+Both are supported; they trade off differently.
+
+| | `Match()` | `switch` |
+| --- | --- | --- |
+| Missing case | compile **error** (arity mismatch) | UNION004 **warning** (tunable to error) |
+| Case identified by | **position** | **type name** |
+| Reordering handlers | silently changes behaviour | impossible to get wrong |
+| Async | `MatchAsync` overloads | not applicable |
+| Partial handling | not possible | natural, with a discard arm |
+
+`Match()` gives the harder guarantee, since a missing handler cannot compile at all. `switch` is safer against a subtler mistake: because arms name their type, two handlers of the same shape cannot be swapped by accident. Use named arguments (`onCircle:`, `onRectangle:`) when you stay with `Match()`.
+
+## Comparison with C# 15 union types
+
+C# 15 adds a `union` keyword (.NET 11, GA November 2026). It solves the same problem with a
+different model, so the two are worth comparing directly - including where this package loses.
+
+### Two different models
+
+`[Union]` is a **tag union**: a closed hierarchy where the cases are declared inside the union and
+exist only as part of it.
+
+```csharp
+[Union]
+public partial record Pet
+{
+    public partial record Cat(string Name);
+    public partial record Dog(string Name);
+}
+```
+
+C# 15 is a **type union**: it composes types that already exist independently.
+
+```csharp
+public record Cat(string Name);          // a normal, standalone type
+public record Dog(string Name);
+public union Pet(Cat, Dog);              // just names the closed set
+```
+
+The compiler lowers that declaration to roughly:
+
+```csharp
+[Union] public struct Pet : IUnion
+{
+    public Pet(Cat value) => Value = value;
+    public Pet(Dog value) => Value = value;
+    public object? Value { get; }
+}
+```
+
+One `object?` field. Everything else follows from that choice.
+
+### Where this package is stronger
+
+**No invalid state.** A struct always has an implicit parameterless constructor, and nothing can
+prevent it. `default(Pet)` is a `Pet` whose `Value` is `null` - a union that is none of its cases:
+
+```csharp
+Pet pet = default;                        // legal, no warning
+var arr = new Pet[10];                    // ten of them
+dict.TryGetValue(key, out var pet);       // and here
+```
+
+The compiler then *requires* a `null` arm in every switch. With `[Union]`, the root's private
+constructor and sealed cases make that state unrepresentable - there is no `null` arm to write.
+
+**No boxing.** Because `Value` is `object?`, a value-type case is boxed on assignment - the docs
+are explicit that the generated form "always boxes value-type cases". A `union IntOrString(int, string)`
+allocates 24 bytes on the heap to hold a 4-byte `int`, so the struct meant to avoid allocation
+allocates anyway. `[Union]` cases hold their data in typed fields, with no boxing at any point.
+
+(C# 15 offers a way out, but you have to build it yourself: a hand-written union implementing the
+*non-boxing access pattern* - `HasValue` plus a `TryGetValue` per case, over your own tag and
+fields - which the compiler then prefers over `Value`. That is the tagged-struct design written by
+hand; the `union` keyword gives you the `switch` syntax, not the storage.)
+
+**Async matching.** `MatchAsync` overloads and `Task<TUnion>` extensions are generated for you.
+`switch` is not awaitable, so the C# 15 model has no equivalent - you write that plumbing yourself.
+
+**Available today**, on net8.0 and net9.0, with no preview SDK.
+
+### Where C# 15 is stronger
+
+**A type can belong to several unions.** `Cat` is an ordinary type, so it can appear in
+`union Pet(Cat, Dog)` and `union Animal(Cat, Cow)` at once. Inheritance allows only one base, so
+a `[Union]` case belongs to exactly one union - permanently.
+
+**Ad hoc unions.** `(A or B or C) x = ...` composes a union inline, with no declaration. A source
+generator cannot offer that.
+
+**Native and dependency-free** - language syntax, with IDE and debugger support built in.
+
+### Side by side
+
+| | `[Union]` | C# 15 `union` |
+| --- | --- | --- |
+| Invalid state | **impossible** | `default` has a null `Value` |
+| Boxing of value-type cases | **never** | always (unless you hand-write a non-boxing union) |
+| Indirection to reach the data | 1 hop | 2 hops (`Value`, then the object) |
+| Cases usable as types | ✅ `Pet.Cat` | ✅ standalone types |
+| Same type in several unions | ❌ | ✅ |
+| Ad hoc unions | ❌ | ✅ |
+| Async matching | ✅ `MatchAsync` | ❌ |
+| Exhaustive `switch` | ✅ via UNION004/005 | ✅ built into the compiler |
+| Available on | net8.0+ | .NET 11 |
+
+The trade is consistent: a closed hierarchy buys correctness (no invalid state, no boxing) at the
+cost of composability (one union per type, no ad hoc unions). Which side matters depends on what
+you are modelling - `Option<T>` and `ResultOf<T, E>` are exactly the case where an unrepresentable
+invalid state is worth more than reuse.
+
+### Related: the `closed` modifier
+
+C# 15 also adds `closed`, which restricts derivation to the declaring assembly so the compiler can
+check exhaustiveness itself:
+
+```csharp
+public closed record class JobStatus;
+public record class Queued : JobStatus;
+public record class Failed(string Error) : JobStatus;
+```
+
+This is the mechanism UNION004 and UNION005 emulate today. A `[Union]` hierarchy is already closed
+in fact - a private constructor makes external derivation a compile error - but Roslyn does not
+infer exhaustiveness from that, which is why the analyzers exist.
+
+### Does this package become obsolete?
+
+No, for two reasons.
+
+It keeps working on net8.0 and net9.0, which C# 15 does not reach.
+
+More to the point, the `[Union]` attribute contract in `System.Runtime.CompilerServices`
+**accepts classes**, not only structs: a type qualifies by carrying the attribute, exposing
+single-parameter constructors, and a `Value` property. So when .NET 11 is generally available, the
+generator can emit those members alongside the existing hierarchy, and the *native* compiler will
+pattern-match these unions with built-in exhaustiveness - while keeping the sealed hierarchy, the
+absent invalid state, and zero boxing. That combination is not available from the `union` keyword
+on its own.
+
+### References
+
+- [Union types - C# reference](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/union)
+- [`closed` modifier - C# reference](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/keywords/closed)
+- [Explore union types in C# 15 - .NET Blog](https://devblogs.microsoft.com/dotnet/csharp-15-union-types/)
+
+*Comparison written against .NET 11 preview documentation (August 2026); details may change before GA.*
 
 ## Real-World Examples
 
@@ -329,7 +616,7 @@ public partial record HttpResponse
 
 ### 3. Exhaustive Matching
 
-The compiler enforces exhaustive matching - you must handle all cases:
+With `Match()`, a missing case is a compile error, because the generated method takes one handler per case:
 
 ```csharp
 // ✅ Compiles - all cases handled
@@ -343,9 +630,21 @@ shape.Match(
 shape.Match(
     circle => CalculateCircleArea(circle),
     rectangle => CalculateRectangleArea(rectangle)
-    // Error: Missing triangle handler
+    // Error: no overload takes 2 arguments
 );
 ```
+
+Since handlers are matched **by position**, prefer named arguments so that reordering cannot silently change behaviour:
+
+```csharp
+shape.Match(
+    onCircle: circle => CalculateCircleArea(circle),
+    onRectangle: rectangle => CalculateRectangleArea(rectangle),
+    onTriangle: triangle => CalculateTriangleArea(triangle)
+);
+```
+
+With a `switch`, exhaustiveness is enforced by the **UNION004** analyzer instead - see [Switch Expressions](#switch-expressions).
 
 ### 4. Use with ResultOf for Error Handling
 
@@ -622,14 +921,37 @@ public bool TryGetRectangle(out Rectangle rectangle) { /* ... */ }
 
 ## Performance
 
-- ✅ **Zero overhead** - Compiles to efficient switch expressions
-- ✅ **No reflection** - All matching is compile-time
-- ✅ **Value types** - Records are efficient
+- ✅ **No reflection** - All matching is compile-time type checks
+- ✅ **Efficient dispatch** - Both `Match()` and `switch` compile to the same type checks
 - ✅ **Inlining** - JIT can inline simple match expressions
+- ℹ️ **Allocation** - Cases are records, so each instance is a heap allocation (~24 bytes).
+  These are short-lived gen0 objects, which the .NET GC handles very cheaply. Long `Map`/`Bind`
+  chains allocate one intermediate per step; that only matters in measured hot paths.
+
+Cases are reference types by design: it is what makes the hierarchy closed and keeps an
+invalid union state unrepresentable. A struct-based union cannot inherit, so it would have
+to carry every case's fields at once (larger, copied on every call) or box its payload into
+an `object?` (which allocates anyway).
+
+## Diagnostics
+
+| ID | Severity | Meaning |
+| --- | --- | --- |
+| `UNION001` | Error | Union generation failed (internal generator error) |
+| `UNION002` | Error | Type with `[Union]` must be declared `partial` |
+| `UNION003` | Error | Union case must be declared `partial record` |
+| `UNION004` | Warning | A `switch` does not handle every union case *(has a code fix)* |
+| `UNION005` | *(suppressor)* | Suppresses `CS8509` when every case is handled |
+| `UNION006` | *(suppressor)* | Suppresses `IDE0010` ("populate switch statement") when every case is handled |
+| `UNION007` | *(suppressor)* | Suppresses `IDE0072` ("populate switch expression") when every case is handled |
+
+`UNION001`-`UNION003` are structural errors and cannot be configured away: without them the
+generator cannot emit valid code. `UNION004` is a normal analyzer rule and can be tuned through
+`.editorconfig`.
 
 ## See Also
 
 - [ResultOf<T, E>](ResultOf.md) - Combine with Result for error handling
 - [Option<T>](Option.md) - Built-in union for optional values
 - [Pipe Extensions](Pipe.md) - Chain transformations on union values
-- [Examples](Examples.md) - More real-world usage patterns
+- [04_UnionTypes.cs](../../../../examples/04_UnionTypes.cs) - Runnable example: payment methods, API states, shapes

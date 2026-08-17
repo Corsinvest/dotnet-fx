@@ -48,7 +48,31 @@ public static class ResultOfValidation
             ok => Console.WriteLine($"   ✅ Pipeline success: {ok.Value}"),
             fail => Console.WriteLine($"   ❌ Pipeline error: {fail.ErrorValue}")
         );
+
+        // Example: native switch instead of Match(), with exhaustiveness checking
+        Console.WriteLine("\n🔀 Switch Expression (exhaustiveness-checked):\n");
+
+        foreach (var (email, name, ageStr) in testCases.Take(2))
+        {
+            var outcome = ValidateAndCreateUser(email, name, ageStr);
+            Console.WriteLine($"   {Describe(outcome)}");
+        }
     }
+
+    // ResultOf<T, E> variants are real types, so a plain switch works - no Match() needed.
+    //
+    // Note there is no discard arm: normally the compiler would demand one (CS8509),
+    // because it treats reference-type hierarchies as open. The UNION005 suppressor
+    // knows this hierarchy is closed and stands the warning down.
+    //
+    // Drop either arm and UNION004 names the variant that went missing, which a
+    // discard arm would otherwise have swallowed in silence.
+    private static string Describe(ResultOf<User, ValidationError> result)
+        => result switch
+        {
+            ResultOf<User, ValidationError>.Ok(var user) => $"✅ {user.Name} <{user.Email}>, age {user.Age}",
+            ResultOf<User, ValidationError>.Fail(var error) => $"❌ {error}"
+        };
 
     // Main validation function using Railway-Oriented Programming
     private static ResultOf<User, ValidationError> ValidateAndCreateUser(string email, string name, string ageStr) =>
@@ -71,7 +95,7 @@ public static class ResultOfValidation
             return ResultOf.Fail<string, ValidationError>(ValidationError.EmailRequired);
         }
 
-        if (!email.Contains("@"))
+        if (!email.Contains('@'))
         {
             return ResultOf.Fail<string, ValidationError>(ValidationError.EmailInvalid);
         }

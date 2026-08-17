@@ -37,6 +37,45 @@ result.Match(
 );
 ```
 
+### Switch Expressions
+
+`ResultOf<T, E>` is built on `[Union]`, so `Ok` and `Fail` are real nested types. A plain `switch`
+works as well as `Match()`:
+
+```csharp
+string Describe(ResultOf<User, ValidationError> result) => result switch
+{
+    ResultOf<User, ValidationError>.Ok(var user) => $"✅ {user.Name}",
+    ResultOf<User, ValidationError>.Fail(var error) => $"❌ {error}"
+};
+```
+
+There is no discard arm (`_`), and it still compiles: the **UNION005** suppressor knows the
+hierarchy is closed, so the compiler's `CS8509` warning does not apply. Drop either arm and
+**UNION004** names the case you left out:
+
+```csharp
+string Describe(ResultOf<User, ValidationError> result) => result switch
+{
+    ResultOf<User, ValidationError>.Ok(var user) => user.Name
+    // warning UNION004: Switch on union 'ResultOf' does not handle variant 'Fail'
+};
+```
+
+A `using` alias keeps long generic names readable:
+
+```csharp
+using ValidationResult = Corsinvest.Fx.Functional.ResultOf<User, ValidationError>;
+
+string Describe(ValidationResult result) => result switch
+{
+    ValidationResult.Ok(var user) => $"✅ {user.Name}",
+    ValidationResult.Fail(var error) => $"❌ {error}"
+};
+```
+
+See [Union - Switch Expressions](Union.md#switch-expressions) for the full rules.
+
 ## Railway-Oriented Programming
 
 Chain operations with automatic error propagation:
@@ -658,4 +697,4 @@ var result = ValidateUser(email, name)
 - [Option<T>](Option.md) - For optional values
 - [Union Types](Union.md) - Create custom discriminated unions
 - [Pipe Extensions](Pipe.md) - Universal pipeline pattern
-- [Examples](Examples.md) - More real-world examples
+- [02_ResultOfValidation.cs](../../../../examples/02_ResultOfValidation.cs) - Runnable example: multi-step validation

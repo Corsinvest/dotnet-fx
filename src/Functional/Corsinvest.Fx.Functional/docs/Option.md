@@ -77,6 +77,33 @@ value.Match(
 );
 ```
 
+### Switch Expressions
+
+`Option<T>` is built on `[Union]`, so `Some` and `None` are real nested types. A plain `switch`
+works as well as `Match()`:
+
+```csharp
+string Describe(Option<User> user) => user switch
+{
+    Option<User>.Some(var value) => $"{value.Name} ({value.Email})",
+    Option<User>.None => "not found"
+};
+```
+
+There is no discard arm (`_`), and it still compiles: the **UNION005** suppressor knows the
+hierarchy is closed, so the compiler's `CS8509` warning does not apply. Drop either arm and
+**UNION004** names the case you left out:
+
+```csharp
+string Describe(Option<User> user) => user switch
+{
+    Option<User>.Some(var value) => value.Name
+    // warning UNION004: Switch on union 'Option' does not handle variant 'None'
+};
+```
+
+See [Union - Switch Expressions](Union.md#switch-expressions) for the full rules.
+
 ## Transformations
 
 ### Map - Transform the Value

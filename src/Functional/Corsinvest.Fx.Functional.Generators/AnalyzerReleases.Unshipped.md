@@ -7,3 +7,4 @@ Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 UNION002 | Design | Error | Union type must be partial
 UNION003 | Design | Error | Union variant must be partial
+UNION004 | Design | Warning | Switch does not handle all union variants

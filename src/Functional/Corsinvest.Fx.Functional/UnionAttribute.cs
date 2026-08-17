@@ -23,4 +23,4 @@ namespace Corsinvest.Fx.Functional;
 /// </code>
 /// </example>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false, Inherited = false)]
-public sealed class UnionAttribute : Attribute { }
+public sealed class UnionAttribute : Attribute;

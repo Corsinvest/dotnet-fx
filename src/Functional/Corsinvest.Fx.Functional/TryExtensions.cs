@@ -1,14 +1,13 @@
 namespace Corsinvest.Fx.Functional;
 
 /// <summary>
-/// Extension methods for safely executing operations that might throw exceptions,
-/// converting them to ResultOf for explicit error handling.
+/// <para>Extension methods for safely executing operations that might throw exceptions,
+/// converting them to ResultOf for explicit error handling.</para>
 /// </summary>
 /// <remarks>
-/// These extensions provide a fluent way to convert exception-throwing operations
-/// into type-safe ResultOf values, enabling functional error handling patterns.
-///
-/// Example:
+/// <para>These extensions provide a fluent way to convert exception-throwing operations
+/// into type-safe ResultOf values, enabling functional error handling patterns.</para>
+/// <para>Example:</para>
 /// <code>
 /// var age = userInput
 ///     .Try(int.Parse)
@@ -123,16 +122,16 @@ public static class TryExtensions
     // ============================================
 
     /// <summary>
-    /// Executes an async function on the input value and catches any exceptions,
-    /// converting them to a ResultOf with Exception as the error type.
+    /// <para>Executes an async function on the input value and catches any exceptions,
+    /// converting them to a ResultOf with Exception as the error type.</para>
     /// </summary>
     /// <typeparam name="TIn">The input type</typeparam>
     /// <typeparam name="TOut">The output type</typeparam>
     /// <param name="value">The input value</param>
     /// <param name="func">The async function to execute that might throw an exception</param>
     /// <returns>
-    /// A task that resolves to a ResultOf containing either the function's return value on success,
-    /// or the caught exception on failure
+    /// <para>A task that resolves to a ResultOf containing either the function's return value on success,
+    /// or the caught exception on failure</para>
     /// </returns>
     /// <example>
     /// <code>

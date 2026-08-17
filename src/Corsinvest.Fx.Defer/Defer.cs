@@ -65,7 +65,9 @@ public static class Defer
     /// using var _ = defer(() => Console.WriteLine("Cleanup"));
     /// </code>
     /// </example>
+#pragma warning disable IDE1006 // Stili di denominazione
     public static IDisposable defer(Action action) => new DeferredAction(action);
+#pragma warning restore IDE1006 // Stili di denominazione
 
     /// <summary>
     /// Defers asynchronous action execution to end of scope (LIFO order).
@@ -108,5 +110,7 @@ public static class Defer
     /// }
     /// </code>
     /// </example>
+#pragma warning disable IDE1006 // Stili di denominazione
     public static IAsyncDisposable defer(Func<Task> asyncAction) => new DeferredAsyncAction(asyncAction);
+#pragma warning restore IDE1006 // Stili di denominazione
 }

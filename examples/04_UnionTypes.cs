@@ -110,7 +110,47 @@ public static class UnionTypes
             Console.WriteLine($"   {description}");
             Console.WriteLine($"   Area: {area:F2}, Perimeter: {perimeter:F2}\n");
         }
+
+        // Example 4: Switch expression instead of Match()
+        Console.WriteLine("4️⃣  Switch Expression (exhaustiveness-checked)\n");
+
+        foreach (var payment in payments)
+        {
+            Console.WriteLine($"   {DescribePayment(payment)}");
+        }
+
+        Console.WriteLine();
+        foreach (var response in responses)
+        {
+            Console.WriteLine($"   {DescribeResponse(response)}");
+        }
     }
+
+    // Union variants are real types, so a plain switch works alongside Match().
+    //
+    // Note there is no discard arm: normally the compiler would demand one (CS8509),
+    // because it treats reference-type hierarchies as open. The UNION005 suppressor
+    // knows this hierarchy is closed and stands the warning down.
+    //
+    // Add a fourth variant to PaymentMethod and UNION004 flags every switch that
+    // does not handle it - the failure a discard arm would have hidden.
+    private static string DescribePayment(PaymentMethod payment)
+        => payment switch
+        {
+            PaymentMethod.CreditCard(var number, _) => $"💳 Card ending in {number[^4..]}",
+            PaymentMethod.PayPal(var email) => $"🅿️  PayPal {email}",
+            PaymentMethod.BankTransfer(var iban, _) => $"🏦 Transfer to {iban}"
+        };
+
+    // Unlike the positional Match(), switch arms name the type they handle, so
+    // reordering them cannot silently change behaviour.
+    private static string DescribeResponse(ApiResponse response)
+        => response switch
+        {
+            ApiResponse.Loading => "⏳ Loading...",
+            ApiResponse.Success(var user) => $"✅ {user.Name} ({user.Email})",
+            ApiResponse.Error(var message) => $"❌ {message}"
+        };
 
     // Calculate payment processing fee
     private static decimal CalculatePaymentFee(PaymentMethod payment)

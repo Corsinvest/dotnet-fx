@@ -442,10 +442,10 @@ NativeMemoryHelper.MakeReadExecute(memory, size);  // Now read-only + executable
 
 ## Examples
 
-See [tests/Corsinvest.Fx.Unsafe.Tests](../../tests/Corsinvest.Fx.Unsafe.Tests/) for more examples:
-- [InlineAsmTests.cs](../../tests/Corsinvest.Fx.Unsafe.Tests/InlineAsmTests.cs) - Basic inline assembly
-- [AttributeTests.cs](../../tests/Corsinvest.Fx.Unsafe.Tests/AttributeTests.cs) - Attribute usage
-- [NativeMemoryHelperTests.cs](../../tests/Corsinvest.Fx.Unsafe.Tests/NativeMemoryHelperTests.cs) - Low-level memory
+See [tests/Corsinvest.Fx.Unsafe.Tests](../../../tests/Unsafe/Corsinvest.Fx.Unsafe.Tests/) for more examples:
+- [InlineAsmTests.cs](../../../tests/Unsafe/Corsinvest.Fx.Unsafe.Tests/InlineAsmTests.cs) - Basic inline assembly
+- [AttributeTests.cs](../../../tests/Unsafe/Corsinvest.Fx.Unsafe.Tests/AttributeTests.cs) - Attribute usage
+- [NativeMemoryHelperTests.cs](../../../tests/Unsafe/Corsinvest.Fx.Unsafe.Tests/NativeMemoryHelperTests.cs) - Low-level memory
 
 ## Inspiration
 

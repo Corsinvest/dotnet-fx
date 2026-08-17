@@ -89,7 +89,7 @@ public static class CombinedPatterns
         SendWelcomeEmail(user.Email)
             .Match(
                 some => Console.WriteLine($"   → Welcome email sent to {some.Value}"),
-                none => Console.WriteLine($"   → Warning: Could not send welcome email")
+                none => Console.WriteLine("   → Warning: Could not send welcome email")
             );
 
         return ResultOf.Ok<RegisteredUser, RegistrationError>(user);

@@ -22,6 +22,12 @@
       Include="..\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj"
       OutputItemType="Analyzer"
       ReferenceOutputAssembly="false" />
+
+    <!-- Code fixes for the analyzer diagnostics (IDE only, never referenced at runtime) -->
+    <ProjectReference
+      Include="..\Corsinvest.Fx.Functional.CodeFixes\Corsinvest.Fx.Functional.CodeFixes.csproj"
+      OutputItemType="Analyzer"
+      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Package Content -->
@@ -29,10 +35,15 @@
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- Embed generator in package as analyzer -->
+  <!-- Embed generator and code fixes in package as analyzers -->
   <ItemGroup>
     <None
       Include="$(OutputPath)\..\Corsinvest.Fx.Functional.Generators\netstandard2.0\Corsinvest.Fx.Functional.Generators.dll"
+      Pack="true"
+      PackagePath="analyzers\dotnet\cs"
+      Visible="false" />
+    <None
+      Include="$(OutputPath)\..\Corsinvest.Fx.Functional.CodeFixes\netstandard2.0\Corsinvest.Fx.Functional.CodeFixes.dll"
       Pack="true"
       PackagePath="analyzers\dotnet\cs"
       Visible="false" />

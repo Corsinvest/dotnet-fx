@@ -113,7 +113,7 @@ public static class OptionChaining
 
         // Without Flatten - nested Option<Option<string>>
         var nestedResult = userIdToLookup.Map(id => FindUserEmail(id));
-        Console.WriteLine($"   With Map only: Option<Option<string>> (nested)");
+        Console.WriteLine("   With Map only: Option<Option<string>> (nested)");
 
         // With Flatten - clean Option<string>
         var flatResult = userIdToLookup.Map(id => FindUserEmail(id)).Flatten();
@@ -180,7 +180,7 @@ public static class OptionChaining
         };
 
     // Helper: Create test data
-    private static Dictionary<int, UserProfile> CreateTestData() => new Dictionary<int, UserProfile>
+    private static Dictionary<int, UserProfile> CreateTestData() => new()
     {
         [1] = new UserProfile(
                 1,

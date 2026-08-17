@@ -78,10 +78,12 @@ namespace Corsinvest.Fx.Functional
         var record = (RecordDeclarationSyntax)context.Node;
         var diagnostics = new List<Diagnostic>();
 
-        var unionAttr = record.AttributeLists
-                              .SelectMany(al => al.Attributes)
-                              .FirstOrDefault(a => a.Name.ToString().Contains("Union"));
-        if (unionAttr == null)
+        // Resolve the attribute through the semantic model: a textual name match would also
+        // fire on unrelated attributes that merely contain "Union" (e.g. [MyUnionHelper]).
+        var hasUnionAttribute = record.AttributeLists
+                                      .SelectMany(al => al.Attributes)
+                                      .Any(a => IsUnionAttribute(a, context.SemanticModel));
+        if (!hasUnionAttribute)
         {
             return null;
         }
@@ -139,6 +141,18 @@ namespace Corsinvest.Fx.Functional
         );
 
         return new UnionGenerationContext(unionInfo, diagnostics);
+    }
+
+    private const string UnionAttributeMetadataName = "Corsinvest.Fx.Functional.UnionAttribute";
+
+    private static bool IsUnionAttribute(AttributeSyntax attribute, SemanticModel semanticModel)
+    {
+        var symbol = semanticModel.GetSymbolInfo(attribute).Symbol
+                     ?? semanticModel.GetSymbolInfo(attribute).CandidateSymbols.FirstOrDefault();
+
+        var attributeType = (symbol as IMethodSymbol)?.ContainingType ?? symbol as INamedTypeSymbol;
+
+        return attributeType?.ToDisplayString() == UnionAttributeMetadataName;
     }
 
     private static string GetNamespace(SyntaxNode node)
@@ -413,7 +427,7 @@ namespace Corsinvest.Fx.Functional
         {
             sb.AppendLine($"            case {variant.Name} {variant.Name.ToLowerInvariant()}:");
             sb.AppendLine($"                on{variant.Name}({variant.Name.ToLowerInvariant()});");
-            sb.AppendLine($"                break;");
+            sb.AppendLine("                break;");
         }
         sb.AppendLine("            default:");
         sb.AppendLine("                throw new InvalidOperationException(\"Invalid union state\");");
@@ -470,7 +484,7 @@ namespace Corsinvest.Fx.Functional
         {
             sb.AppendLine($"            case {variant.Name} {variant.Name.ToLowerInvariant()}:");
             sb.AppendLine($"                await on{variant.Name}({variant.Name.ToLowerInvariant()});");
-            sb.AppendLine($"                break;");
+            sb.AppendLine("                break;");
         }
         sb.AppendLine("            default:");
         sb.AppendLine("                throw new InvalidOperationException(\"Invalid union state\");");

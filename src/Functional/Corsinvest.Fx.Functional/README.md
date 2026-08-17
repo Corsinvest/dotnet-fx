@@ -54,6 +54,20 @@ double CalculateArea(Shape shape) => shape.Match(
 );
 ```
 
+Or with a native `switch` - no discard arm needed, and a missing case is reported by name:
+
+```csharp
+double CalculateArea(Shape shape) => shape switch
+{
+    Shape.Circle(var radius) => Math.PI * radius * radius,
+    Shape.Rectangle(var width, var height) => width * height
+    // remove an arm and you get:
+    // warning UNION004: Switch on union 'Shape' does not handle variant 'Rectangle'
+};
+```
+
+The same works for `Option<T>` and `ResultOf<T, E>`, which are unions themselves.
+
 📖 **[Read the complete Union Types guide →](docs/Union.md)**
 
 ### Pipe - Universal Pipeline Pattern
