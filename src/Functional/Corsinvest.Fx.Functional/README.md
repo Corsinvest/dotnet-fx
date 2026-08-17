@@ -7,7 +7,7 @@
 
 ## Overview
 
-Brings powerful functional programming patterns to C#: type-safe error handling with `ResultOf<T, E>`, discriminated unions via `[Union]` attribute, and universal pipeline composition with `Pipe`.
+Brings powerful functional programming patterns to C#: type-safe error handling with `ResultOf<T, E>`, discriminated unions via the `IUnion<T1..T8>` marker interface, and universal pipeline composition with `Pipe`.
 
 ## Installation
 
@@ -40,13 +40,14 @@ result.Match(
 
 ### Union Types - Discriminated Unions
 
+Case types are ordinary, independently declared types - the `IUnion<T1..T8>` marker interface just
+names the closed set, and the generator emits one sealed wrapper per case:
+
 ```csharp
-[Union]
-public partial record Shape
-{
-    public partial record Circle(double Radius);
-    public partial record Rectangle(double Width, double Height);
-}
+public record Circle(double Radius);
+public record Rectangle(double Width, double Height);
+
+public abstract partial record Shape : IUnion<Circle, Rectangle>;
 
 double CalculateArea(Shape shape) => shape.Match(
     circle => Math.PI * circle.Radius * circle.Radius,
@@ -59,8 +60,8 @@ Or with a native `switch` - no discard arm needed, and a missing case is reporte
 ```csharp
 double CalculateArea(Shape shape) => shape switch
 {
-    Shape.Circle(var radius) => Math.PI * radius * radius,
-    Shape.Rectangle(var width, var height) => width * height
+    Shape.Circle(var circle) => Math.PI * circle.Radius * circle.Radius,
+    Shape.Rectangle(var rectangle) => rectangle.Width * rectangle.Height
     // remove an arm and you get:
     // warning UNION004: Switch on union 'Shape' does not handle variant 'Rectangle'
 };
@@ -68,16 +69,15 @@ double CalculateArea(Shape shape) => shape switch
 
 The same works for `Option<T>` and `ResultOf<T, E>`, which are unions themselves.
 
-Cases can also be **external, independently declared types** with `[Union<T1..T8>]`, so the same
-type can take part in more than one union - useful when the cases are plain data types you would
-declare anyway:
+Because the case types are ordinary declarations, the same type can take part in more than one
+union, and - the shape an attribute-based design could never reach - a case can close over the
+union root's own type parameter, which is exactly how `Option<T>` and `ResultOf<T, E>` are built:
 
 ```csharp
 public record CreditCard(string Number);
 public record PayPal(string Email);
 
-[Union<CreditCard, PayPal>]
-public abstract partial record PaymentMethod;
+public abstract partial record PaymentMethod : IUnion<CreditCard, PayPal>;
 
 PaymentMethod method = new CreditCard("4111-1111-1111-1111"); // implicit conversion
 ```
@@ -106,7 +106,7 @@ var user = await userId
 - **[Try Functions](docs/Try.md)** - Safely execute code and convert exceptions to ResultOf
 - **[Union Types](docs/Union.md)** - Custom discriminated unions with source generators
 - **[Pipe Extensions](docs/Pipe.md)** - Universal pipeline pattern for any type
-- **[Option<T>](docs/Option.md)** - Optional values *(planned)*
+- **[Option<T>](docs/Option.md)** - Optional values
 
 ## 🔧 Troubleshooting
 
@@ -120,7 +120,7 @@ var user = await userId
 using Corsinvest.Fx.Functional; // Add this
 ```
 
-### Error: "The type or namespace name 'UnionAttribute' could not be found"
+### Error: "The type or namespace name 'IUnion<>' could not be found"
 
 **Cause:** Missing using Corsinvest.Fx.Functional; directive.
 
@@ -130,7 +130,7 @@ using Corsinvest.Fx.Functional; // Add this
 using Corsinvest.Fx.Functional; // Add this
 ```
 
-### Error: "Union attribute not generating code"
+### Error: "Union not generating code"
 
 **Cause:** This usually happens if the source generator is not running correctly or there's an IDE cache issue.
 
@@ -138,17 +138,14 @@ using Corsinvest.Fx.Functional; // Add this
 
 1.  **Clean and Rebuild:** Run dotnet clean && dotnet build. This often resolves source generator issues.
 2.  **Restart IDE:** Restarting Visual Studio or Rider can clear cached source generator outputs.
-3.  **Check Definition:** Ensure your union type is a public partial record or public partial class. The [Union] attribute requires partial.
+3.  **Check Definition:** Ensure your union root is declared `partial`. The generator needs to add members to it.
 
 ```csharp
-[Union] // ✅ Correct
-public partial record Shape
-{
-    public partial record Circle(double Radius);
-}
+public record Circle(double Radius);
 
-[Union] // ❌ Incorrect - missing 'partial'
-public record Shape { ... }
+public abstract partial record Shape : IUnion<Circle>; // ✅ Correct
+
+public abstract record Shape2 : IUnion<Circle>; // ❌ Incorrect - missing 'partial'
 ```
 
 ### Warning: CS8602 "Dereference of a possibly null reference" on Option<T>.Value

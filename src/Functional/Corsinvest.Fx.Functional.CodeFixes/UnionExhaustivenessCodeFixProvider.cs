@@ -212,8 +212,8 @@ public class UnionExhaustivenessCodeFixProvider : CodeFixProvider
     /// with no positional members - there is nothing to deconstruct there.
     /// </summary>
     /// <remarks>
-    /// A generic-union wrapper (see <c>UnionAttribute&lt;T1..T8&gt;</c>) has exactly one positional
-    /// member, always called <c>Value</c>. Naming the local <c>value</c> in that case would be
+    /// A union wrapper over an external case type (see <c>IUnion&lt;T1..T8&gt;</c>) has exactly one
+    /// positional member, always called <c>Value</c>. Naming the local <c>value</c> in that case would be
     /// uninformative, so the variable is named after the wrapped type instead, e.g.
     /// <c>Pet.Cat(var cat)</c> rather than <c>Pet.Cat(var value)</c>.
     /// </remarks>

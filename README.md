@@ -48,7 +48,7 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
 ### ✅ Use Corsinvest.Fx When You Want
 
 - **Type-safe error handling** without exceptions (`ResultOf<T,E>`, `Option<T>`)
-- **Discriminated unions** with pattern matching (`[Union]` attribute)
+- **Discriminated unions** with pattern matching (`IUnion<T1..T8>` marker interface)
 - **Go-style resource cleanup** (`defer`)
 - **Data transformation pipelines** (`Pipe` extensions)
 - **Gradual adoption** in existing C# codebases
@@ -71,7 +71,7 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
 
 | Package | Description | Status |
 |---------|-------------|--------|
-| **[Corsinvest.Fx.Functional](src/Functional/Corsinvest.Fx.Functional/)** | `ResultOf<T,E>`, `Option<T>`, `[Union]` attribute. Railway-oriented programming, pattern matching, LINQ support. | ✅ Stable |
+| **[Corsinvest.Fx.Functional](src/Functional/Corsinvest.Fx.Functional/)** | `ResultOf<T,E>`, `Option<T>`, `IUnion<T1..T8>` marker interface. Railway-oriented programming, pattern matching, LINQ support. | ✅ Stable |
 | **[Corsinvest.Fx.Defer](src/Corsinvest.Fx.Defer/)** | Go-style defer statements for automatic cleanup on scope exit. | ✅ Stable |
 
 ### Experimental Packages
@@ -178,16 +178,15 @@ result.Match(
 
 ### Union Types - Discriminated Unions
 
-Pattern matching for different states:
+Case types are ordinary, independently declared types - the `IUnion<T1..T8>` marker interface just
+names the closed set:
 
 ```csharp
-[Union]
-public partial record PaymentMethod
-{
-    public partial record CreditCard(string Number, string ExpiryDate);
-    public partial record PayPal(string Email);
-    public partial record BankTransfer(string Iban, string Bic);
-}
+public record CreditCard(string Number, string ExpiryDate);
+public record PayPal(string Email);
+public record BankTransfer(string Iban, string Bic);
+
+public abstract partial record PaymentMethod : IUnion<CreditCard, PayPal, BankTransfer>;
 
 decimal CalculateFee(PaymentMethod payment) => payment.Match(
     onCreditCard: creditCard => 2.5m,
@@ -209,10 +208,11 @@ decimal CalculateFee(PaymentMethod payment) => payment switch
 };
 ```
 
-Cases can also be external, independently declared types via `[Union<T1..T8>]`, so the same type
-can take part in more than one union - see the
-[Union Types guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#the-generic-form-union-of-t1-to-t8)
-for both forms.
+Because the case types are ordinary declarations, the same type can take part in more than one
+union, and a case can close over the union root's own type parameter - the shape `Option<T>` and
+`ResultOf<T, E>` are built from, and the reason this package uses an interface rather than an
+attribute; see the
+[Union Types guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#why-an-interface-and-not-an-attribute).
 
 ### Option - Null Safety
 

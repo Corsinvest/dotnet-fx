@@ -6,7 +6,7 @@ using System.Collections.Immutable;
 namespace Corsinvest.Fx.Functional;
 
 /// <summary>
-/// Shared logic for recognising <c>[Union]</c> types and enumerating their variants.
+/// Shared logic for recognising <c>IUnion&lt;...&gt;</c> types and enumerating their variants.
 /// Used by the exhaustiveness analyzer, the CS8509 suppressor, and the code fix
 /// that fills in missing switch arms.
 /// </summary>

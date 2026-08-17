@@ -4,7 +4,7 @@
     <!-- Package Information (unique to this package) -->
     <PackageId>Corsinvest.Fx.Functional</PackageId>
     <Title>Functional Programming for C#</Title>
-    <Description>Functional programming types for C#: ResultOf&lt;T, E&gt; for type-safe error handling, Option&lt;T&gt; for optional values, and [Union] attribute for custom discriminated unions. Railway-oriented programming with LINQ support, pattern matching, and zero runtime overhead via source generators. Common constructs (Try, Some, Ok, Fail) are globally available by default.</Description>
+    <Description>Functional programming types for C#: ResultOf&lt;T, E&gt; for type-safe error handling, Option&lt;T&gt; for optional values, and the IUnion&lt;T1..T8&gt; marker interface for custom discriminated unions. Railway-oriented programming with LINQ support, pattern matching, and zero runtime overhead via source generators. Common constructs (Try, Some, Ok, Fail) are globally available by default.</Description>
     <PackageTags>functional;result;option;either;union;discriminated-union;pattern-matching;railway;monad;linq;async;type-safe;source-generator</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>

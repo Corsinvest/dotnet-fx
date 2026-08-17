@@ -24,7 +24,7 @@ public class UnionExhaustivenessAnalyzer : DiagnosticAnalyzer
         category: "Design",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "Every variant of a [Union] type should be handled explicitly, so that adding "
+        description: "Every variant of an IUnion<...> type should be handled explicitly, so that adding "
                    + "a new variant surfaces every switch that needs updating.");
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics

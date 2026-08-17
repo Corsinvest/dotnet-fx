@@ -6,14 +6,14 @@ using System.Collections.Immutable;
 namespace Corsinvest.Fx.Functional;
 
 /// <summary>
-/// Suppresses the compiler's non-exhaustiveness warning on switches over [Union] types
-/// when every variant is handled.
+/// Suppresses the compiler's non-exhaustiveness warning on switches over <c>IUnion&lt;...&gt;</c>
+/// types when every variant is handled.
 /// </summary>
 /// <remarks>
 /// The compiler treats reference-type hierarchies as open and so demands a discard arm.
-/// A [Union] hierarchy is closed by construction - the generator emits a private constructor on
-/// the root and seals every variant - which makes that discard unreachable. Requiring it is worse
-/// than noise: once written, it silently swallows variants added later.
+/// An <c>IUnion&lt;...&gt;</c> hierarchy is closed by construction - the generator emits a private
+/// constructor on the root and seals every variant - which makes that discard unreachable.
+/// Requiring it is worse than noise: once written, it silently swallows variants added later.
 /// Paired with <see cref="UnionExhaustivenessAnalyzer"/>, which names the variants that are missing.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -25,7 +25,7 @@ public class UnionExhaustivenessSuppressor : DiagnosticSuppressor
     private const string PopulateSwitchExpressionId = "IDE0072";
 
     private const string Justification =
-        "All variants of the [Union] type are handled and the hierarchy is closed, "
+        "All variants of the union are handled and the hierarchy is closed, "
         + "so the switch cannot fall through and a default arm would be unreachable.";
 
     // One descriptor per suppressed diagnostic: a SuppressionDescriptor targets exactly one id.

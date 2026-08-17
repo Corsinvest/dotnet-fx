@@ -79,17 +79,21 @@ value.Match(
 
 ### Switch Expressions
 
-`Option<T>` is built on `[Union]`, so `Some` and `None` are real nested types. A plain `switch`
-works as well as `Match()`:
+`Option<T>` is declared as `Option<T> : IUnion<Some<T>, None>`, so `Some` and `None` are real
+nested types. A plain `switch` works as well as `Match()`.
 
-`[Union]` is one of two ways to declare a union in this package - `Option<T>` uses it because
-`Some<T>`'s case closes over `Option<T>`'s own type parameter, which is the one shape the other
-form, `[Union<T1..T8>]`, cannot express (see [the generic form](Union.md#the-generic-form-union-of-t1-to-t8)).
+`Some<T>`'s case closes over `Option<T>`'s own type parameter - the shape that only the
+`IUnion<T1..T8>` interface can express, since an attribute argument cannot reference the
+decorated type's own type parameter (see
+[Why an interface, and not an attribute?](Union.md#why-an-interface-and-not-an-attribute)).
+
+Each wrapper's sole positional member is the case value itself, so the switch pattern binds one
+variable - here `some`, of type `Some<User>` - and its own `Value` holds the `User`:
 
 ```csharp
 string Describe(Option<User> user) => user switch
 {
-    Option<User>.Some(var value) => $"{value.Name} ({value.Email})",
+    Option<User>.Some(var some) => $"{some.Value.Name} ({some.Value.Email})",
     Option<User>.None => "not found"
 };
 ```
@@ -101,7 +105,7 @@ hierarchy is closed, so the compiler's `CS8509` warning does not apply. Drop eit
 ```csharp
 string Describe(Option<User> user) => user switch
 {
-    Option<User>.Some(var value) => value.Name
+    Option<User>.Some(var some) => some.Value.Name
     // warning UNION004: Switch on union 'Option' does not handle variant 'None'
 };
 ```
@@ -597,15 +601,18 @@ ResultOf<Option<string>, ConfigError> GetOptionalSetting(string key);
 
 ## Implementation Note
 
-Option<T> can be implemented as a discriminated union:
+`Option<T>` is itself a discriminated union, declared through the `IUnion<T1..T8>` marker
+interface (see [Union Types](Union.md)):
 
 ```csharp
-[Union]
-public partial record Option<T>
-{
-    public partial record Some(T Value);
-    public partial record None();
-}
+public sealed record Some<T>(T Value);
+public sealed record None;
+
+[UnionCaseName<Some<int>>("Some")]
+public abstract partial record Option<T> : IUnion<Some<T>, None>;
 ```
 
-This gives you exhaustive pattern matching and type safety with zero runtime overhead.
+`Some<T>`'s case closes over `Option<T>`'s own type parameter `T` - a shape only the interface
+form can express, which is why `Option<T>` is spelled this way rather than with an attribute; see
+[Why an interface, and not an attribute?](Union.md#why-an-interface-and-not-an-attribute). This
+gives you exhaustive pattern matching and type safety with zero runtime overhead.

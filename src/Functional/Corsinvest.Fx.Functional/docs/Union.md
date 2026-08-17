@@ -4,13 +4,35 @@
 
 ## Overview
 
-The `[Union]` attribute enables you to create discriminated unions (also known as sum types or tagged unions) in C#. Discriminated unions represent a value that can be one of several named cases, each potentially with different data.
+The `IUnion<T1..T8>` marker interface enables you to create discriminated unions (also known as sum types or tagged unions) in C#. Discriminated unions represent a value that can be one of several named cases, each potentially with different data.
 
-The source generator creates:
+The case types are ordinary, independently declared types - records, classes, structs, enums,
+even `string` and other primitives - and the interface just names the closed set. The generator
+sees the declaration and emits, per case, a `sealed partial record` wrapper nested inside the root:
 
-- Type-safe construction
-- Exhaustive pattern matching via `Match()` method
-- Native `switch` support with compile-time exhaustiveness checking (see [Switch Expressions](#switch-expressions))
+```csharp
+using Corsinvest.Fx.Functional;
+
+public record Cat(string Name);
+public record Dog(string Name);
+
+public abstract partial record Pet : IUnion<Cat, Dog>;
+```
+
+```csharp
+// Generated (roughly):
+public sealed partial record Pet.Cat(Cat Value) : Pet;
+public sealed partial record Pet.Dog(Dog Value) : Pet;
+```
+
+The source generator also creates:
+
+- An implicit conversion from each case type to the root
+- Exhaustive pattern matching via `Match()`, plus a void-returning `Match()` overload
+- `MatchAsync` overloads, both on the instance and as `Task<TRoot>` extensions (see
+  [Async Pattern Matching](#async-pattern-matching))
+- Native `switch` support with compile-time exhaustiveness checking (see
+  [Switch Expressions](#switch-expressions))
 - `Is{Case}` properties and `TryGet{Case}` methods
 
 ## Basic Usage
@@ -20,20 +42,18 @@ The source generator creates:
 ```csharp
 using Corsinvest.Fx.Functional;
 
-[Union]
-public partial record Shape
-{
-    public partial record Circle(double Radius);
-    public partial record Rectangle(double Width, double Height);
-    public partial record Triangle(double Base, double Height);
-}
+public record Circle(double Radius);
+public record Rectangle(double Width, double Height);
+public record Triangle(double Base, double Height);
+
+public abstract partial record Shape : IUnion<Circle, Rectangle, Triangle>;
 ```
 
 **Requirements:**
 
-- The union type must be `partial`
-- All cases must be `partial record`
-- Cases must be nested inside the union type
+- The union root must be `partial`
+- The case types are ordinary types, declared independently - not nested, not `partial`, no
+  attribute on them at all
 
 ### Pattern Matching
 
@@ -45,130 +65,132 @@ double CalculateArea(Shape shape) => shape.Match(
 );
 
 // Usage
-var circle = new Shape.Circle(5.0);
-var area = CalculateArea(circle); // 78.54
+var circle = new Circle(5.0);
+Shape shapeValue = circle;              // implicit conversion from the case type
+var area = CalculateArea(shapeValue);   // 78.54
 ```
 
-The `Match()` method is **exhaustive** - you must handle all cases, or it won't compile.
+The `Match()` method is **exhaustive** - you must handle all cases, or it won't compile. Each
+handler receives the **case type itself** (`Circle`, not the generated `Shape.Circle` wrapper),
+since the wrapper's only job is to make the hierarchy closed.
 
-## The Generic Form (Union of T1 to T8)
+## Why an interface, and not an attribute?
 
-`[Union]` requires the cases to be declared *inside* the union - they exist only as part of it.
-`[Union<T1..T8>]` takes the opposite approach: the cases are ordinary, independently declared
-types, and the attribute just names the closed set.
+Earlier versions of this package spelled a union with `[Union]` and nested `partial record` cases.
+That attribute is gone; `IUnion<T1..T8>` replaced it entirely. The reason is not stylistic - it is
+what makes `Option<T>` and `ResultOf<T, E>` expressible at all.
+
+An attribute's type arguments are **metadata**. They are resolved before the decorated type is
+even bound, which means they can never reference that type's own type parameters. Try to spell a
+generic union this way and every variant fails, for a different reason:
 
 ```csharp
-using Corsinvest.Fx.Functional;
+// error CS8968: an attribute argument cannot reference the decorated type's own type parameter.
+// [Union<Ok<T>, Fail<E>>]
+// public abstract partial record ResultOf<T, E>;
 
-// Ordinary, standalone types - no attribute, no partial, reusable anywhere.
-public record CreditCard(string Number, string Cvv, DateTime Expiry);
-public record PayPal(string Email);
-public record BankTransfer(string Iban, string Bic);
+// error CS7003: an unbound generic type is not a legal type argument.
+// [Union<Ok<>, Fail<>>]
+// public abstract partial record ResultOf<T, E>;
 
-[Union<CreditCard, PayPal, BankTransfer>]
-public abstract partial record PaymentMethod;
+// error CS0416: 'Ok<T>': an attribute argument cannot use type parameters.
+// [UnionOf(typeof(Ok<T>))]
+// public abstract partial record ResultOf<T, E>;
 ```
 
-The generator emits, per case, a `sealed partial record` wrapper nested inside the root:
+None of these are generator limitations - the compiler rejects all three before any generator
+code runs. There is no clever workaround inside an attribute-based design; the constraint is
+structural.
+
+An interface is different: it is part of the type's own declaration, resolved in the same scope
+as the type parameters it declares. So this compiles, unremarkably:
 
 ```csharp
-public sealed partial record PaymentMethod.CreditCard(CreditCard Value) : PaymentMethod;
+public abstract partial record ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>;
 ```
 
-plus an implicit conversion from the case type, an `Is{Case}` property, a `TryGet{Case}` method,
-and `Match`/`Match` (void)/`MatchAsync` overloads - the same member set `[Union]` generates, just
-built from external types instead of nested ones:
+and Roslyn hands the generator `Ok<T>` and `Fail<E>` **already bound** to `ResultOf<T, E>`'s own
+`T` and `E`. The generator does not substitute, infer, or reconstruct anything - it reads the
+interface's type arguments off the symbol exactly as the compiler resolved them. There is no
+substitution logic in the generator at all. That absence is the design's payoff, not an
+implementation detail: it is *why* a case can close over the root's own type parameter, something
+no attribute-based design could ever add, no matter how it was extended.
+
+This is why `Option<T>` (`IUnion<Some<T>, None>`) and `ResultOf<T, E>` (`IUnion<Ok<T>, Fail<E>>`)
+exist as they do - see [Option\<T\>](Option.md) and [ResultOf\<T, E\>](ResultOf.md).
+
+**Case types can be almost anything**: classes, sealed classes, records, structs, record structs,
+enums, `string`, `int` and other primitives, arrays, closed generics (`List<T>`,
+`Dictionary<K,V>`), and tuples - including **named** tuples such as `(int X, int Y)`, which could
+never appear as an attribute type argument (`CS8970`) but are an ordinary type argument to an
+interface. Value-type cases are held in a typed field on their wrapper - a
+`struct Money { public decimal Amount; }` case ends up as `Root.Money.Value` of type `Money`, not
+`object` - so **nothing is boxed**.
+
+One shape is rejected: an **interface** case type, reported as `UNION012` - see below.
+
+`examples/04_UnionTypes.cs` has a working `AppError` union over a sealed class, an enum, a struct,
+and `string` in one declaration:
 
 ```csharp
-PaymentMethod method = new CreditCard("4111-1111-1111-1111", "123", DateTime.UtcNow);
-                     // ^ implicit conversion from the case type
-
-var fee = method.Match(
-    onCreditCard: card => 0.029m,
-    onPayPal: payPal => 0.034m,
-    onBankTransfer: transfer => 0m
-);
-
-if (method.TryGetCreditCard(out var creditCard))
+public sealed class DatabaseError(string Table, int Code)
 {
-    Console.WriteLine(creditCard.Number);
+    public string Table { get; } = Table;
+    public int Code { get; } = Code;
 }
 
-var description = method switch
+public enum NetworkError { Timeout, Refused, DnsFailure }
+
+public readonly struct ValidationError(int Line, int Column)
 {
-    PaymentMethod.CreditCard(var card) => $"Card ending in {card.Number[^4..]}",
-    PaymentMethod.PayPal(var payPal) => $"PayPal {payPal.Email}",
-    PaymentMethod.BankTransfer(var transfer) => $"Bank transfer to {transfer.Iban}"
+    public int Line { get; } = Line;
+    public int Column { get; } = Column;
+}
+
+public abstract partial record AppError : IUnion<DatabaseError, NetworkError, ValidationError, string>;
+```
+
+```csharp
+// Each element converts implicitly - no need to name the wrapper explicitly.
+var errors = new AppError[]
+{
+    new DatabaseError("orders", 1205),
+    NetworkError.Timeout,
+    new ValidationError(42, 7),
+    "plain message"
 };
 ```
 
-Note one difference from `[Union]`: the generic form does not generate the `Task<TUnion>`
-extension class (the fluent `someTask.MatchAsync(...)` shown in
-[Async Pattern Matching](#async-pattern-matching)) - only the instance `Match`/`MatchAsync`
-methods shown above. Everything else - `UNION004`/`005`/`006`/`007`, the closed hierarchy, the
-`switch` support - applies identically to both forms.
-
-**Case types can be almost anything**: classes, sealed classes, records, structs, record structs,
-enums, delegates, `string`, `int` and other primitives, arrays, and closed generics (`List<T>`,
-`Dictionary<K,V>`, and so on). Value-type cases are held in a typed field on their wrapper - a
-`struct Money { public decimal Amount; }` case ends up as `Root.Money.Value` of type `Money`, not
-`object` - so **nothing is boxed**, the same guarantee `[Union]` gives, extended to external value
-types.
-
-Two shapes do **not** work as case types today, both driven by plain C# rules rather than
-anything the generator controls:
-
-- **Interfaces** - the generator always emits an implicit conversion operator for each case, and
-  C# forbids user-defined conversions to or from an interface (`CS0552`). An interface case type
-  fails the build unconditionally.
-- **Named tuples** (`(int X, int Y)`) - a tuple with element names cannot appear as an attribute
-  type argument at all (`CS8970`); this is a general C# restriction on attributes, unrelated to
-  unions. An *unnamed* tuple, `(int, int)`, works fine.
-
-### Which form should I use?
-
-|  | `[Union]` (nested) | `[Union<T1..T8>]` (generic) |
-| --- | --- | --- |
-| Case types | exist only inside the union | ordinary, independently declared |
-| Reuse across unions | ❌ one union per case type, permanently | ✅ the same type can be a case in several unions |
-| Cases closing over the root's own type parameter | ✅ only form that can express this | ❌ **CS8968** - illegal, see below |
-| Declaration style | nested `partial record` per case | attribute type arguments + `[UnionCaseName<T>]` overrides |
-
-Reach for the **generic form** when the cases are types you would plausibly declare and reuse on
-their own - request/response payloads, domain entities, anything that exists independently of the
-union.
-
-Reach for the **nested form** when a case exists purely as part of the union, or - the one place
-the generic form cannot go at all - when a case needs to **close over the union root's own type
-parameter**. `Option<T>`'s `Some(T Value)` and `ResultOf<T, E>`'s `Ok(T Value)` / `Fail(E Error)`
-are exactly this shape:
+One shape is rejected on purpose: **interfaces**. The generator always emits an implicit
+conversion operator for each case, and C# forbids a user-defined conversion to or from an
+interface (`CS0552`). Rather than let that surface as a confusing compiler error deep in generated
+code, the generator checks for it itself and reports **UNION012**, naming the offending case, then
+stops generating for that union entirely:
 
 ```csharp
-// This does NOT compile: error CS8968 - an attribute type argument may not reference the
-// decorated type's own type parameter.
-// [Union<Some<T>, None>]
-// public abstract partial record Option<T>;
-```
+public interface IShape;
+public record Cat(string Name);
 
-`Some<T>` only exists as `Option<T>.Some`, so it can only be spelled with `T` still in scope -
-which is exactly what an attribute argument cannot do. There is no generator change that works
-around this; it is enforced by the compiler before the generator ever runs. That is why
-`Option<T>` and `ResultOf<T, E>` stay on `[Union]` (see [Option<T>](Option.md) and
-[ResultOf<T, E>](ResultOf.md)) - the two attributes are permanent alternatives, not a
-migration path from one to the other.
+// error UNION012: Union 'Pet' has case type 'IShape', which is an interface; C# forbids a
+// user-defined conversion to or from an interface, so the generated implicit conversion cannot
+// compile.
+public abstract partial record Pet : IUnion<IShape, Cat>;
+```
 
 ### Wrapper names
 
 Each case gets a wrapper name, derived from the case type unless overridden. The rules, checked
 in order:
 
-1. **The case type's own short name**, by default - `CreditCard` → `PaymentMethod.CreditCard`.
+1. **The case type's own short name**, by default - `Cat` → `Pet.Cat`.
 2. **Namespace-prefixed**, when two cases' short names collide - `Farm.Cat` and `Wild.Cat` both
    start as `Cat`, so they become `FarmCat` and `WildCat`.
 3. **`ListOf`/`DictionaryOf`-style names for closed generics** - `List<string>` →
    `ListOfString`, `Dictionary<string, int>` → `DictionaryOfStringInt32`.
 4. **`{Element}Array` for arrays** - `int[]` → `Int32Array`.
-5. **`TupleOf...` for (unnamed) tuples** - `(int, int)` → `TupleOfInt32Int32`.
+5. **`TupleOf...` for tuples**, named or not - `(int X, int Y)` → `TupleOfInt32Int32` (element
+   names do not affect the wrapper name; see [UNION009](#union009-implicit-conversions-omitted-for-the-whole-union)
+   for what happens when that causes two cases to collide).
 6. **CLR names, not keywords** - `int` → `Int32`, `string` → `String`, so the wrapper is always a
    legal identifier.
 7. **`[UnionCaseName<T>("...")]` always wins** - an explicit override is applied before any of the
@@ -179,15 +201,13 @@ namespace Farm { public record Cat(string Name); }
 namespace Wild { public record Cat(string Species); }
 
 // Both named "Cat" - rule 2 (namespace prefix) resolves the collision automatically.
-[Union<Farm.Cat, Wild.Cat>]
-public abstract partial record Feline;
+public abstract partial record Feline : IUnion<Farm.Cat, Wild.Cat>;
 // => Feline.FarmCat, Feline.WildCat
 
 // Overriding explicitly (rule 7) instead of relying on the namespace prefix:
-[Union<Farm.Cat, Wild.Cat>]
 [UnionCaseName<Farm.Cat>("Domestic")]
 [UnionCaseName<Wild.Cat>("Feral")]
-public abstract partial record Feline2;
+public abstract partial record Feline2 : IUnion<Farm.Cat, Wild.Cat>;
 // => Feline2.Domestic, Feline2.Feral
 ```
 
@@ -197,75 +217,49 @@ is listed twice - the generator cannot invent a third name and reports **UNION00
 ```csharp
 public record Cat(string Name);
 
-[Union<Cat, Cat>]                 // error UNION008: case types resolve to the same wrapper name
-public abstract partial record Pet;
+// error UNION008: case types resolve to the same wrapper name
+public abstract partial record Pet : IUnion<Cat, Cat>;
 ```
 
-#### Generic roots need explicit names
+#### `[UnionCaseName<T>]` on a case that closes over the root's own type parameter
 
-On a **generic** root (`Box<T>`, not just `Box`), a wrapper name equal to its own case type's
-name is rejected differently: the nested wrapper `Box<T>.Cat` shares the attribute's own lookup
-scope, so it **shadows** the top-level `Cat` the attribute argument needs to resolve - and the
-compiler rejects the whole declaration with `CS8968`, even though `Cat` never mentions `T`.
+`[UnionCaseName<T>("...")]` is itself an attribute, so its own type argument is bound by the same
+rule as any other attribute argument: it must be **closed** - it cannot mention the root's type
+parameter either. That looks like a problem for a case like `Option<T>`'s `Some<T>`, which only
+ever appears as the open generic `Some<T>` in the declaration:
 
 ```csharp
-public record Cat(string Name);
-public record Dog(string Name);
-
-// error CS8968, even though neither Cat nor Dog mentions T:
-// the default wrapper name "Cat" shadows the case type "Cat" in the attribute's own scope.
-[Union<Cat, Dog>]
-public abstract partial record Box<T>;
+public abstract partial record Option<T> : IUnion<Some<T>, None>;
 ```
 
-**UNION010** catches this before it reaches the compiler's own, less helpful error, and names the
-fix:
+The override works anyway, by naming a **closed stand-in** instead - any fully-constructed
+version of the same open generic:
 
 ```csharp
-[Union<Cat, Dog>]
-[UnionCaseName<Cat>("CatCase")]   // required on a generic root
-[UnionCaseName<Dog>("DogCase")]
-public abstract partial record Box<T>;
+[UnionCaseName<Some<int>>("Some")]     // pins the wrapper name for Some<T>, not just Some<int>
+public abstract partial record Option<T> : IUnion<Some<T>, None>;
 ```
 
-With the overrides in place, `Box<T>` compiles and works like any other generic union:
-
-```csharp
-Box<int> box = new Cat("Whiskers");
-var name = box.Match(
-    onCatCase: cat => cat.Name,
-    onDogCase: dog => dog.Name
-);
-```
-
-#### `UNION009`: implicit conversions omitted for the whole union
-
-Two cases can have distinct wrapper names yet still erase to the *same* CLR type once generics
-and tuple element names are stripped away - for example two named tuples that both become
-`ValueTuple<int, int>`. The generator cannot emit two `implicit operator Root(ValueTuple<int,
-int>)` overloads (that is `CS0557`, ambiguous user-defined conversions), so it falls back to a
-single all-or-nothing switch: `EmitImplicitConversions` is one bool for the entire union, not one
-per case. When any two cases collide, **no case in that union gets an implicit conversion** -
-including cases whose CLR type collides with nothing at all - and the generator reports
-**UNION009** once, naming the colliding pair, instead of silently emitting a broken subset. In a
-union with three or more cases this is easy to misread as "only the colliding pair loses its
-conversion" - it is not. Construct **every** case wrapper directly with `new Root.CaseName(value)`
-once the union has any collision, even for the cases that were never part of it.
-
-In practice this is hard to hit with hand-written code, because named tuples cannot appear as
-attribute type arguments at all (`CS8970`, above); it mainly guards against generic case types
-whose type arguments happen to collide after erasure.
+The naming logic matches this by **original definition**: `Some<int>` and the case type `Some<T>`
+share the same unbound definition (`Some<>`), so the override applies to the case as declared,
+whatever `T` ends up being at any particular closed `Option<int>` or `Option<string>`. This
+matters only for a case that is open with respect to the root's type parameters; a fully closed
+case type (like `None` above) is matched by exact type instead, so two distinct closed cases -
+`Some<int>` and `Some<string>` as two *separate* entries in an `IUnion<...>` list, say - are never
+conflated by this fallback.
 
 ## Switch Expressions
 
-Union cases are real nested types, so you can use a plain C# `switch` instead of `Match()`:
+Union cases are real nested types, so you can use a plain C# `switch` instead of `Match()`. Each
+wrapper has exactly one positional member - the case value itself - so the pattern binds one
+variable per arm, named after the case type, and you reach its members through that:
 
 ```csharp
 double CalculateArea(Shape shape) => shape switch
 {
-    Shape.Circle(var radius) => Math.PI * radius * radius,
-    Shape.Rectangle(var width, var height) => width * height,
-    Shape.Triangle(var b, var h) => 0.5 * b * h
+    Shape.Circle(var circle) => Math.PI * circle.Radius * circle.Radius,
+    Shape.Rectangle(var rectangle) => rectangle.Width * rectangle.Height,
+    Shape.Triangle(var triangle) => 0.5 * triangle.Base * triangle.Height
 };
 ```
 
@@ -291,7 +285,7 @@ double CalculateArea(Shape shape) => shape switch
 
 ### How the package fixes it
 
-`[Union]` hierarchies **are** closed - the generator emits a private constructor on the root and seals every case, so nothing outside can derive from it. The package ships two analyzers that act on this:
+An `IUnion<...>` hierarchy **is** closed - the generator emits a private constructor on the root and seals every case, so nothing outside can derive from it. The package ships two analyzers that act on this:
 
 | ID | Kind | What it does |
 | --- | --- | --- |
@@ -303,17 +297,13 @@ The suppressions matter as much as the warning: `CS8509`, `IDE0010` and `IDE0072
 toward the discard arm that hides future cases. On a closed union that arm is unreachable code,
 so the package stands those suggestions down and lets UNION004 speak instead.
 
-All four apply identically to `[Union<T1..T8>]` unions - the generic form emits the same sealed,
-closed hierarchy, so the same analyzers recognize it. See [Diagnostics](#diagnostics) for the
-generic-only diagnostics, `UNION008`-`UNION010`.
-
 Together they invert the default behaviour: the discard arm becomes unnecessary, and a missing case becomes loud.
 
 ```csharp
 double CalculateArea(Shape shape) => shape switch
 {
-    Shape.Circle(var radius) => Math.PI * radius * radius,
-    Shape.Rectangle(var w, var h) => w * h
+    Shape.Circle(var circle) => Math.PI * circle.Radius * circle.Radius,
+    Shape.Rectangle(var rectangle) => rectangle.Width * rectangle.Height
     // warning UNION004: Switch on union 'Shape' does not handle variant 'Triangle'
     // warning CS8509: switch expression is not exhaustive
 };
@@ -333,22 +323,23 @@ Add `Shape.Pentagon` to the union and every `switch` that ignores it lights up -
 // before
 double CalculateArea(Shape shape) => shape switch
 {
-    Shape.Circle(var radius) => Math.PI * radius * radius
+    Shape.Circle(var circle) => Math.PI * circle.Radius * circle.Radius
 };
 
 // after
 double CalculateArea(Shape shape) => shape switch
 {
-    Shape.Circle(var radius) => Math.PI * radius * radius,
-    Shape.Rectangle(var width, var height) => throw new System.NotImplementedException(),
-    Shape.Triangle(var @base, var height) => throw new System.NotImplementedException()
+    Shape.Circle(var circle) => Math.PI * circle.Radius * circle.Radius,
+    Shape.Rectangle(var rectangle) => throw new System.NotImplementedException(),
+    Shape.Triangle(var triangle) => throw new System.NotImplementedException()
 };
 ```
 
-Each added arm deconstructs its case, so the data is already in scope with names taken from the
-record's positional members - keywords are escaped (`var @base`). A case with no positional
-members gets a bare type pattern instead. The body is `throw new NotImplementedException()`, so an
-arm you forget to finish fails loudly rather than returning a plausible default.
+Each added arm deconstructs its case, binding one variable named after the case type - `var
+rectangle`, not `var value` - since every wrapper's sole positional member is the case value
+itself. A case with no positional members (an empty record, for instance) gets a bare type
+pattern instead. The body is `throw new NotImplementedException()`, so an arm you forget to
+finish fails loudly rather than returning a plausible default.
 
 An existing discard arm stays last, keeping the added arms reachable. The fix also supports
 **Fix All** in document, project, or solution.
@@ -379,11 +370,11 @@ A pattern only counts when it matches **every** value of that case:
 | `Shape.Circle` | ✅ |
 | `Shape.Circle c` | ✅ |
 | `Shape.Circle { }` | ✅ |
-| `Shape.Circle(var r)` | ✅ all subpatterns irrefutable |
+| `Shape.Circle(var circle)` | ✅ all subpatterns irrefutable |
 | `Shape.Circle(_)` | ✅ |
 | `Shape.Circle or Shape.Rectangle` | ✅ both |
-| `Shape.Circle c when c.Radius > 0` | ❌ guarded, can fail |
-| `Shape.Circle { Radius: 5 }` | ❌ matches a subset |
+| `Shape.Circle c when c.Value.Radius > 0` | ❌ guarded, can fail |
+| `Shape.Circle { Value.Radius: 5 }` | ❌ matches a subset |
 
 ### Configuration
 
@@ -417,35 +408,21 @@ different model, so the two are worth comparing directly - including where this 
 
 ### Two different models
 
-`[Union]` is a **tag union**: a closed hierarchy where the cases are declared inside the union and
-exist only as part of it.
-
-```csharp
-[Union]
-public partial record Pet
-{
-    public partial record Cat(string Name);
-    public partial record Dog(string Name);
-}
-```
-
-`[Union<T1..T8>]` narrows that gap: the cases are ordinary, independently declared types, and the
-attribute just names the closed set - the same composition C# 15 offers, kept inside this
-package's closed-hierarchy model:
+This package is a **tag union**: a closed hierarchy where the generator emits one sealed wrapper
+per case, deriving from the root.
 
 ```csharp
 public record Cat(string Name);          // a normal, standalone type
 public record Dog(string Name);
 
-[Union<Cat, Dog>]
-public abstract partial record Pet;
+public abstract partial record Pet : IUnion<Cat, Dog>;
 ```
 
-C# 15 is a **type union**: it composes types that already exist independently, the same way, but
-with a different runtime shape underneath.
+C# 15 is a **type union**: it composes types that already exist independently, the same way this
+package does, but with a different runtime shape underneath.
 
 ```csharp
-public record Cat(string Name);          // a normal, standalone type
+public record Cat(string Name);
 public record Dog(string Name);
 public union Pet(Cat, Dog);              // just names the closed set
 ```
@@ -474,65 +451,63 @@ var arr = new Pet[10];                    // ten of them
 dict.TryGetValue(key, out var pet);       // and here
 ```
 
-The compiler then *requires* a `null` arm in every switch. With `[Union]`, the root's private
-constructor and sealed cases make that state unrepresentable - there is no `null` arm to write.
+The compiler then *requires* a `null` arm in every switch. With this package's generated
+hierarchy, the root's private constructor and sealed cases make that state unrepresentable - there
+is no `null` arm to write.
 
 **No boxing.** Because `Value` is `object?`, a value-type case is boxed on assignment - the docs
 are explicit that the generated form "always boxes value-type cases". A `union IntOrString(int, string)`
 allocates 24 bytes on the heap to hold a 4-byte `int`, so the struct meant to avoid allocation
-allocates anyway. `[Union]` cases hold their data in typed fields, with no boxing at any point.
+allocates anyway. This package's cases hold their data in typed fields, with no boxing at any
+point - true for a value-type case exactly as much as a reference-type one.
 
 (C# 15 offers a way out, but you have to build it yourself: a hand-written union implementing the
 *non-boxing access pattern* - `HasValue` plus a `TryGetValue` per case, over your own tag and
 fields - which the compiler then prefers over `Value`. That is the tagged-struct design written by
 hand; the `union` keyword gives you the `switch` syntax, not the storage.)
 
-**Async matching.** `MatchAsync` overloads are generated for you on both forms; `[Union]` also
-generates `Task<TUnion>` extensions for fluent chaining (see [Which form should I use?](#which-form-should-i-use)
-for the one difference between the two). `switch` is not awaitable, so the C# 15 model has no
-equivalent - you write that plumbing yourself.
+**Async matching.** `MatchAsync` overloads are generated for you, both on the instance and as
+`Task<TRoot>` extensions for fluent chaining (see [Async Pattern Matching](#async-pattern-matching)).
+`switch` is not awaitable, so the C# 15 model has no equivalent - you write that plumbing yourself.
+
+**Cases closing over the root's own type parameter.** `Option<T> : IUnion<Some<T>, None>` and
+`ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>` express a case whose shape depends on the union root's
+*own* generic parameter. C# 15's cases are independent types with no relationship to the `union`
+declaration beyond being listed in it, so there is nothing for them to close over - a union
+keyword equivalent of `Option<T>` is not expressible at all. See
+[Why an interface, and not an attribute?](#why-an-interface-and-not-an-attribute) for why this
+package can do it and an attribute-based design could not have.
 
 **Available today**, on net8.0 and net9.0, with no preview SDK.
 
 ### Where C# 15 is still stronger
 
 **Ad hoc unions.** `(A or B or C) x = ...` composes a union inline, with no declaration. A source
-generator cannot offer that, in either form.
+generator cannot offer that.
 
 **Native and dependency-free** - language syntax, with IDE and debugger support built in, no
 package reference and no build-time source generator.
 
-A type belonging to several unions - the gap called out in earlier versions of this comparison -
-is no longer C# 15's alone: `[Union<T1..T8>]` gives this package the same composability, for cases
-that do not need to close over a generic root's own type parameter. `Cat` can be
-`[Union<Cat, Dog>]`'s `Pet` and `[Union<Cat, Cow>]`'s `Animal` at once, exactly like
-`union Pet(Cat, Dog)` and `union Animal(Cat, Cow)` would let it. The nested `[Union]` form keeps
-the older restriction - a case declared inside a union belongs to exactly that union, permanently
-- because that is what lets it close over the root's type parameter at all (see
-[Which form should I use?](#which-form-should-i-use)).
-
 ### Side by side
 
-| | `[Union]` (nested) | `[Union<T1..T8>]` (generic) | C# 15 `union` |
-| --- | --- | --- | --- |
-| Invalid state | **impossible** | **impossible** | `default` has a null `Value` |
-| Boxing of value-type cases | **never** | **never** | always (unless you hand-write a non-boxing union) |
-| Indirection to reach the data | 1 hop | 1 hop | 2 hops (`Value`, then the object) |
-| Cases usable as types | ✅ `Pet.Cat` | ✅ `Pet.Cat`, plus the standalone `Cat` | ✅ standalone types |
-| Same type in several unions | ❌ | ✅ | ✅ |
-| Cases closing over the root's own type parameter | ✅ only form that can | ❌ CS8968 | n/a - not generic itself |
-| Ad hoc unions | ❌ | ❌ | ✅ |
-| Async matching | ✅ `MatchAsync` + `Task<TUnion>` extensions | ✅ `MatchAsync` (no `Task<TUnion>` extensions) | ❌ |
-| Exhaustive `switch` | ✅ via UNION004/005 | ✅ via UNION004/005 | ✅ built into the compiler |
-| Available on | net8.0+ | net8.0+ | .NET 11 |
+| | This package (`IUnion<...>`) | C# 15 `union` |
+| --- | --- | --- |
+| Invalid state | **impossible** | `default` has a null `Value` |
+| Boxing of value-type cases | **never** | always (unless you hand-write a non-boxing union) |
+| Indirection to reach the data | 1 hop | 2 hops (`Value`, then the object) |
+| Cases usable as types | ✅ the standalone case type, plus `Root.Case` | ✅ standalone types |
+| Same type in several unions | ✅ `Cat` can be a case of `Pet` and of `Animal` at once | ✅ |
+| Cases closing over the root's own type parameter | ✅ `Option<T>`, `ResultOf<T, E>` | ❌ not expressible - cases are independent types |
+| Ad hoc unions | ❌ | ✅ |
+| Async matching | ✅ `MatchAsync` + `Task<TRoot>` extensions | ❌ |
+| Exhaustive `switch` | ✅ via UNION004/005 | ✅ built into the compiler |
+| Available on | net8.0+ | .NET 11 |
 
-Both attributes still buy the closed-hierarchy correctness C# 15's struct-backed union does not
-have (no invalid state, no boxing); the generic form adds most of C# 15's composability on top,
-while the nested form remains the only way to express a case that closes over the root's own type
-parameter. What is left, on either side, is ad hoc unions and native language syntax - and
-`Option<T>` / `ResultOf<T, E>` are exactly the case where the nested form's restriction (one union
-per case, permanently) is not a cost, because their cases were never meant to be reused outside
-them.
+What is left, on this package's side, is ad hoc unions and native language syntax with zero
+dependency - real advantages for a throwaway `(A or B) x` that never gets a name. What this
+package keeps that C# 15 cannot reach at all, regardless of how the comparison shifts elsewhere,
+is a case that closes over the union root's own type parameter - the shape `Option<T>` and
+`ResultOf<T, E>` are built from.
 
 ### Related: the `closed` modifier
 
@@ -545,9 +520,9 @@ public record class Queued : JobStatus;
 public record class Failed(string Error) : JobStatus;
 ```
 
-This is the mechanism UNION004 and UNION005 emulate today. A `[Union]` hierarchy is already closed
-in fact - a private constructor makes external derivation a compile error - but Roslyn does not
-infer exhaustiveness from that, which is why the analyzers exist.
+This is the mechanism UNION004 and UNION005 emulate today. This package's generated hierarchy is
+already closed in fact - a private constructor makes external derivation a compile error - but
+Roslyn does not infer exhaustiveness from that, which is why the analyzers exist.
 
 ### Does this package become obsolete?
 
@@ -576,14 +551,13 @@ on its own.
 ### Payment Methods
 
 ```csharp
-[Union]
-public partial record PaymentMethod
-{
-    public partial record CreditCard(string Number, string Cvv, DateTime Expiry);
-    public partial record PayPal(string Email);
-    public partial record BankTransfer(string Iban, string Bic);
-    public partial record Cryptocurrency(string WalletAddress, string Currency);
-}
+public record CreditCard(string Number, string Cvv, DateTime Expiry);
+public record PayPal(string Email);
+public record BankTransfer(string Iban, string Bic);
+public record Cryptocurrency(string WalletAddress, string Currency);
+
+public abstract partial record PaymentMethod
+    : IUnion<CreditCard, PayPal, BankTransfer, Cryptocurrency>;
 
 decimal CalculateFee(PaymentMethod method, decimal amount) => method.Match(
     creditCard => amount * 0.029m + 0.30m,      // 2.9% + $0.30
@@ -603,14 +577,13 @@ string GetDisplayName(PaymentMethod method) => method.Match(
 ### API Response States
 
 ```csharp
-[Union]
-public partial record ApiResponse<T>
-{
-    public partial record Success(T Data, int StatusCode);
-    public partial record Error(string Message, int StatusCode);
-    public partial record Loading();
-    public partial record NotStarted();
-}
+public record Success<T>(T Data, int StatusCode);
+public record Error(string Message, int StatusCode);
+public record Loading;
+public record NotStarted;
+
+public abstract partial record ApiResponse<T>
+    : IUnion<Success<T>, Error, Loading, NotStarted>;
 
 void HandleUserResponse(ApiResponse<User> response) => response.Match(
     success => DisplayUser(success.Data),
@@ -620,23 +593,21 @@ void HandleUserResponse(ApiResponse<User> response) => response.Match(
 );
 
 // Usage with state management
-ApiResponse<User> userState = new ApiResponse<User>.Loading();
+ApiResponse<User> userState = new Loading();
 userState = await FetchUser()
-    ? new ApiResponse<User>.Success(user, 200)
-    : new ApiResponse<User>.Error("Not found", 404);
+    ? new Success<User>(user, 200)
+    : new Error("Not found", 404);
 ```
 
 ### Log Levels with Context
 
 ```csharp
-[Union]
-public partial record LogEntry
-{
-    public partial record Info(string Message, DateTime Timestamp);
-    public partial record Warning(string Message, string Details, DateTime Timestamp);
-    public partial record Error(string Message, Exception Exception, DateTime Timestamp);
-    public partial record Debug(string Message, Dictionary<string, object> Context, DateTime Timestamp);
-}
+public record Info(string Message, DateTime Timestamp);
+public record Warning(string Message, string Details, DateTime Timestamp);
+public record LogError(Exception Exception, string Message, DateTime Timestamp);
+public record Debug(string Message, Dictionary<string, object> Context, DateTime Timestamp);
+
+public abstract partial record LogEntry : IUnion<Info, Warning, LogError, Debug>;
 
 void WriteLog(LogEntry entry) => entry.Match(
     info => _logger.LogInformation("[{Time}] {Message}", info.Timestamp, info.Message),
@@ -649,44 +620,16 @@ void WriteLog(LogEntry entry) => entry.Match(
 );
 ```
 
-### File System Operations
-
-```csharp
-[Union]
-public partial record FileSystemEntry
-{
-    public partial record File(string Path, long Size, DateTime Modified);
-    public partial record Directory(string Path, DateTime Modified);
-    public partial record SymbolicLink(string Path, string Target);
-    public partial record NotFound(string Path);
-}
-
-long GetSize(FileSystemEntry entry) => entry.Match(
-    file => file.Size,
-    directory => CalculateDirectorySize(directory.Path),
-    symLink => GetSize(ReadLink(symLink.Target)),
-    notFound => 0L
-);
-
-string GetIcon(FileSystemEntry entry) => entry.Match(
-    file => "📄",
-    directory => "📁",
-    symLink => "🔗",
-    notFound => "❌"
-);
-```
-
 ### Command Pattern
 
 ```csharp
-[Union]
-public partial record Command
-{
-    public partial record CreateUser(string Email, string Name);
-    public partial record UpdateUser(int Id, string Name);
-    public partial record DeleteUser(int Id);
-    public partial record SendEmail(int UserId, string Subject, string Body);
-}
+public record CreateUser(string Email, string Name);
+public record UpdateUser(int Id, string Name);
+public record DeleteUser(int Id);
+public record SendEmail(int UserId, string Subject, string Body);
+
+public abstract partial record Command
+    : IUnion<CreateUser, UpdateUser, DeleteUser, SendEmail>;
 
 async Task<ResultOf<string, string>> ExecuteCommand(Command command) =>
     await command.Match(
@@ -697,104 +640,70 @@ async Task<ResultOf<string, string>> ExecuteCommand(Command command) =>
     );
 ```
 
-### State Machine
-
-```csharp
-[Union]
-public partial record OrderState
-{
-    public partial record Draft(List<OrderItem> Items);
-    public partial record Submitted(int OrderId, DateTime SubmittedAt);
-    public partial record Processing(int OrderId, string Status);
-    public partial record Shipped(int OrderId, string TrackingNumber, DateTime ShippedAt);
-    public partial record Delivered(int OrderId, DateTime DeliveredAt);
-    public partial record Cancelled(int OrderId, string Reason, DateTime CancelledAt);
-}
-
-OrderState TransitionState(OrderState current, OrderEvent event) =>
-    (current, event) switch
-    {
-        (OrderState.Draft draft, SubmitEvent) =>
-            new OrderState.Submitted(SaveOrder(draft.Items), DateTime.UtcNow),
-
-        (OrderState.Submitted submitted, ProcessEvent) =>
-            new OrderState.Processing(submitted.OrderId, "Processing payment"),
-
-        (OrderState.Processing processing, ShipEvent ship) =>
-            new OrderState.Shipped(processing.OrderId, ship.TrackingNumber, DateTime.UtcNow),
-
-        (OrderState.Shipped shipped, DeliverEvent) =>
-            new OrderState.Delivered(shipped.OrderId, DateTime.UtcNow),
-
-        (_, CancelEvent cancel) =>
-            new OrderState.Cancelled(GetOrderId(current), cancel.Reason, DateTime.UtcNow),
-
-        _ => current // Invalid transition, stay in current state
-    };
-```
-
 ## Advanced Patterns
 
 ### Union with Empty Cases
 
 ```csharp
-[Union]
-public partial record NetworkStatus
-{
-    public partial record Connected();
-    public partial record Connecting();
-    public partial record Disconnected();
-    public partial record Error(string Message);
-}
+public record Connected;
+public record Connecting;
+public record Disconnected;
+public record NetworkError(string Message);
 
-// Empty cases don't need parameters
-var status = new NetworkStatus.Connected();
+public abstract partial record NetworkStatus
+    : IUnion<Connected, Connecting, Disconnected, NetworkError>;
+
+// Empty cases don't need parameters, and the implicit conversion still applies
+NetworkStatus status = new Connected();
 ```
 
 ### Nested Unions
 
 ```csharp
-[Union]
-public partial record Result
-{
-    public partial record Success(string Message);
-    public partial record Warning(string Message, string Details);
-    public partial record Error(string Message, ErrorDetails Details);
-}
+public record Validation(List<string> Errors);
+public record Network(int StatusCode);
+public record Internal(Exception Exception);
 
-[Union]
-public partial record ErrorDetails
-{
-    public partial record Validation(List<string> Errors);
-    public partial record Network(int StatusCode);
-    public partial record Internal(Exception Exception);
-}
+public abstract partial record ErrorDetails : IUnion<Validation, Network, Internal>;
+
+public record Success(string Message);
+public record Warning(string Message, string Details);
+public record Failure(string Message, ErrorDetails Details);
+
+public abstract partial record Result : IUnion<Success, Warning, Failure>;
 
 void LogResult(Result result) => result.Match(
     success => Console.WriteLine($"✓ {success.Message}"),
     warning => Console.WriteLine($"⚠ {warning.Message}: {warning.Details}"),
-    error => error.Details.Match(
+    failure => failure.Details.Match(
         validation => Console.WriteLine($"✗ Validation: {string.Join(", ", validation.Errors)}"),
         network => Console.WriteLine($"✗ Network error: HTTP {network.StatusCode}"),
-        internal => Console.WriteLine($"✗ Internal error: {internal.Exception.Message}")
+        internalError => Console.WriteLine($"✗ Internal error: {internalError.Exception.Message}")
     )
 );
 ```
 
 ### Generic Unions
 
+`Option<T>` ships with the package; this is the shape it is built from - a case closing over the
+root's own type parameter, which only the interface form can express (see
+[Why an interface, and not an attribute?](#why-an-interface-and-not-an-attribute)). Without an
+override, `Some<T>`'s default wrapper name would be `SomeOfT` (rule 3 above: generic case types
+get a `{Name}Of{Args}` name); `[UnionCaseName<Some<int>>("Some")]` overrides it to the shorter
+`Some`, matched by original definition so it applies at every closed `Option<TSomething>` (see
+[`[UnionCaseName<T>]` on a case that closes over the root's own type parameter](#unioncasenamet-on-a-case-that-closes-over-the-roots-own-type-parameter)):
+
 ```csharp
-[Union]
-public partial record Option<T>
-{
-    public partial record Some(T Value);
-    public partial record None();
-}
+public sealed record Some<T>(T Value);
+public sealed record None;
+
+[UnionCaseName<Some<int>>("Some")]
+public abstract partial record Option<T> : IUnion<Some<T>, None>;
 
 Option<int> ParseInt(string input) =>
     int.TryParse(input, out var result)
-        ? new Option<int>.Some(result)
-        : new Option<int>.None();
+        ? new Some<int>(result)     // implicit conversion, same as any other case
+        : new None();
 
 // Usage
 var result = ParseInt("42").Match(
@@ -809,43 +718,36 @@ var result = ParseInt("42").Match(
 
 ```csharp
 // ✅ Good - clear intent
-[Union]
-public partial record PaymentStatus
-{
-    public partial record Pending(DateTime CreatedAt);
-    public partial record Completed(DateTime CompletedAt, string TransactionId);
-    public partial record Failed(DateTime FailedAt, string Reason);
-}
+public record Pending(DateTime CreatedAt);
+public record Completed(DateTime CompletedAt, string TransactionId);
+public record Failed(DateTime FailedAt, string Reason);
+
+public abstract partial record PaymentStatus : IUnion<Pending, Completed, Failed>;
 
 // ❌ Bad - unclear
-[Union]
-public partial record PaymentStatus
-{
-    public partial record Status1(DateTime Time);
-    public partial record Status2(DateTime Time, string Id);
-    public partial record Status3(DateTime Time, string Reason);
-}
+public record Status1(DateTime Time);
+public record Status2(DateTime Time, string Id);
+public record Status3(DateTime Time, string Reason);
+
+public abstract partial record PaymentStatus2 : IUnion<Status1, Status2, Status3>;
 ```
 
 ### 2. Include Relevant Data in Each Case
 
 ```csharp
 // ✅ Good - each case has the data it needs
-[Union]
-public partial record HttpResponse
-{
-    public partial record Success(string Body, int StatusCode, Dictionary<string, string> Headers);
-    public partial record Redirect(string Location, int StatusCode);
-    public partial record ClientError(string Message, int StatusCode);
-    public partial record ServerError(string Message, int StatusCode, string? StackTrace);
-}
+public record HttpSuccess(string Body, int StatusCode, Dictionary<string, string> Headers);
+public record Redirect(string Location, int StatusCode);
+public record ClientError(string Message, int StatusCode);
+public record ServerError(string Message, int StatusCode, string? StackTrace);
+
+public abstract partial record HttpResponse
+    : IUnion<HttpSuccess, Redirect, ClientError, ServerError>;
 
 // ❌ Bad - forcing all data into all cases
-[Union]
-public partial record HttpResponse
-{
-    public partial record Response(string? Body, string? Location, string? Message, int StatusCode);
-}
+public record Response(string? Body, string? Location, string? Message, int StatusCode);
+
+public abstract partial record HttpResponse2 : IUnion<Response>;
 ```
 
 ### 3. Exhaustive Matching
@@ -883,23 +785,21 @@ With a `switch`, exhaustiveness is enforced by the **UNION004** analyzer instead
 ### 4. Use with ResultOf for Error Handling
 
 ```csharp
-[Union]
-public partial record ValidationError
-{
-    public partial record Required(string FieldName);
-    public partial record TooShort(string FieldName, int MinLength);
-    public partial record InvalidFormat(string FieldName, string Expected);
-}
+public record Required(string FieldName);
+public record TooShort(string FieldName, int MinLength);
+public record InvalidFormat(string FieldName, string Expected);
+
+public abstract partial record ValidationError : IUnion<Required, TooShort, InvalidFormat>;
 
 ResultOf<User, ValidationError> ValidateUser(string email, string name)
 {
     if (string.IsNullOrEmpty(email))
         return ResultOf.Fail<User, ValidationError>(
-            new ValidationError.Required("email"));
+            new ValidationError.Required(new Required("email")));
 
     if (name.Length < 2)
         return ResultOf.Fail<User, ValidationError>(
-            new ValidationError.TooShort("name", 2));
+            new ValidationError.TooShort(new TooShort("name", 2)));
 
     return ResultOf.Ok<User, ValidationError>(new User(email, name));
 }
@@ -908,7 +808,7 @@ ResultOf<User, ValidationError> ValidateUser(string email, string name)
 ## Comparison with Other Patterns
 
 | Pattern            | Type Safety | Exhaustiveness  | Extensibility         |
-| ------------------ | ----------- | --------------- | --------------------- |
+| ------------------ | ----------- | --------------- | ---------------------- |
 | **Union Types**    | ✅ Full     | ✅ Compile-time | ⚠️ Closed (by design) |
 | Inheritance + `is` | ⚠️ Runtime  | ❌ No           | ✅ Open               |
 | Enums              | ✅ Full     | ⚠️ Switch only  | ❌ No data            |
@@ -923,9 +823,10 @@ ResultOf<User, ValidationError> ValidateUser(string email, string name)
 
 ## Async Pattern Matching
 
-The generator also creates extension methods for `Task<TUnion>` to enable fluent async pattern matching:
+The generator creates both instance `MatchAsync` overloads and extension methods on `Task<TRoot>`,
+so you can await first and match after (or the other way around) without an intermediate variable.
 
-### MatchAsync on Task<TUnion>
+### MatchAsync on Task<TRoot>
 
 ```csharp
 // Async Match with TResult - handlers return Task<TResult>
@@ -990,16 +891,15 @@ decimal fee = await paymentTask.MatchAsync(
 ### Real-world async example
 
 ```csharp
-[Union]
-public partial record Command
-{
-    public partial record CreateUser(string Email, string Name);
-    public partial record UpdateUser(int Id, string Name);
-    public partial record DeleteUser(int Id);
-}
+public record CreateUserCmd(string Email, string Name);
+public record UpdateUserCmd(int Id, string Name);
+public record DeleteUserCmd(int Id);
+
+public abstract partial record UserCommand
+    : IUnion<CreateUserCmd, UpdateUserCmd, DeleteUserCmd>;
 
 // Process command asynchronously
-Task<ResultOf<string, string>> ProcessCommandAsync(Command command) =>
+Task<ResultOf<string, string>> ProcessCommandAsync(UserCommand command) =>
     command.MatchAsync(
         async create => await _userService.CreateAsync(create.Email, create.Name),
         async update => await _userService.UpdateAsync(update.Id, update.Name),
@@ -1007,7 +907,7 @@ Task<ResultOf<string, string>> ProcessCommandAsync(Command command) =>
     );
 
 // Chain with Task
-Task<Command> commandTask = ReceiveCommandAsync();
+Task<UserCommand> commandTask = ReceiveCommandAsync();
 var result = await commandTask.MatchAsync(
     async create => {
         var user = await _userService.CreateAsync(create.Email, create.Name);
@@ -1031,8 +931,8 @@ var result = await commandTask.MatchAsync(
 
 ```csharp
 var result = await GetUserIdAsync()
-    .PipeAsync(FetchUserCommandAsync)           // Task<Command>
-    .MatchAsync(                                 // Extension on Task<Command>
+    .PipeAsync(FetchUserCommandAsync)           // Task<UserCommand>
+    .MatchAsync(                                 // Extension on Task<UserCommand>
         async create => await ProcessCreateAsync(create),
         async update => await ProcessUpdateAsync(update),
         async delete => await ProcessDeleteAsync(delete)
@@ -1042,42 +942,50 @@ var result = await GetUserIdAsync()
 
 ## Generated Code
 
-The source generator creates `Match` methods and async extensions for your union type. For example
-(this is the nested `[Union]` form - see [The Generic Form](#the-generic-form-union-of-t1-to-t8) for what
-`[Union<T1..T8>]` emits):
+The source generator creates `Match` methods and async extensions for your union type. For example:
 
 ```csharp
-[Union]
-public partial record Shape
-{
-    public partial record Circle(double Radius);
-    public partial record Rectangle(double Width, double Height);
-}
+public record Circle(double Radius);
+public record Rectangle(double Width, double Height);
 
-// Generates (inside Shape class):
+public abstract partial record Shape : IUnion<Circle, Rectangle>;
+
+// Generates (inside Shape):
+public sealed partial record Circle(global::Circle Value) : Shape;
+public sealed partial record Rectangle(global::Rectangle Value) : Shape;
+
+public static implicit operator Shape(global::Circle value) => new Circle(value);
+public static implicit operator Shape(global::Rectangle value) => new Rectangle(value);
+
+public bool IsCircle => this is Circle;
+public bool IsRectangle => this is Rectangle;
+
+public bool TryGetCircle(out global::Circle value) { /* ... */ }
+public bool TryGetRectangle(out global::Rectangle value) { /* ... */ }
+
 public TResult Match<TResult>(
-    Func<Circle, TResult> onCircle,
-    Func<Rectangle, TResult> onRectangle)
+    Func<global::Circle, TResult> onCircle,
+    Func<global::Rectangle, TResult> onRectangle)
 {
     return this switch
     {
-        Circle circle => onCircle(circle),
-        Rectangle rectangle => onRectangle(rectangle),
+        Circle wrapped => onCircle(wrapped.Value),
+        Rectangle wrapped => onRectangle(wrapped.Value),
         _ => throw new InvalidOperationException("Invalid union state")
     };
 }
 
 public void Match(
-    Action<Circle> onCircle,
-    Action<Rectangle> onRectangle)
+    Action<global::Circle> onCircle,
+    Action<global::Rectangle> onRectangle)
 {
     switch (this)
     {
-        case Circle circle:
-            onCircle(circle);
+        case Circle wrapped:
+            onCircle(wrapped.Value);
             break;
-        case Rectangle rectangle:
-            onRectangle(rectangle);
+        case Rectangle wrapped:
+            onRectangle(wrapped.Value);
             break;
         default:
             throw new InvalidOperationException("Invalid union state");
@@ -1085,28 +993,28 @@ public void Match(
 }
 
 public async Task<TResult> MatchAsync<TResult>(
-    Func<Circle, Task<TResult>> onCircle,
-    Func<Rectangle, Task<TResult>> onRectangle)
+    Func<global::Circle, Task<TResult>> onCircle,
+    Func<global::Rectangle, Task<TResult>> onRectangle)
 {
     return this switch
     {
-        Circle circle => await onCircle(circle),
-        Rectangle rectangle => await onRectangle(rectangle),
+        Circle wrapped => await onCircle(wrapped.Value),
+        Rectangle wrapped => await onRectangle(wrapped.Value),
         _ => throw new InvalidOperationException("Invalid union state")
     };
 }
 
 public async Task MatchAsync(
-    Func<Circle, Task> onCircle,
-    Func<Rectangle, Task> onRectangle)
+    Func<global::Circle, Task> onCircle,
+    Func<global::Rectangle, Task> onRectangle)
 {
     switch (this)
     {
-        case Circle circle:
-            await onCircle(circle);
+        case Circle wrapped:
+            await onCircle(wrapped.Value);
             break;
-        case Rectangle rectangle:
-            await onRectangle(rectangle);
+        case Rectangle wrapped:
+            await onRectangle(wrapped.Value);
             break;
         default:
             throw new InvalidOperationException("Invalid union state");
@@ -1119,8 +1027,8 @@ public static class ShapeUnionExtensions
     // MatchAsync on Task<Shape> with async handlers returning Task<TResult>
     public static async Task<TResult> MatchAsync<TResult>(
         this Task<Shape> task,
-        Func<Shape.Circle, Task<TResult>> onCircle,
-        Func<Shape.Rectangle, Task<TResult>> onRectangle)
+        Func<global::Circle, Task<TResult>> onCircle,
+        Func<global::Rectangle, Task<TResult>> onRectangle)
     {
         var result = await task;
         return await result.MatchAsync(onCircle, onRectangle);
@@ -1129,8 +1037,8 @@ public static class ShapeUnionExtensions
     // MatchAsync on Task<Shape> with async handlers returning Task
     public static async Task MatchAsync(
         this Task<Shape> task,
-        Func<Shape.Circle, Task> onCircle,
-        Func<Shape.Rectangle, Task> onRectangle)
+        Func<global::Circle, Task> onCircle,
+        Func<global::Rectangle, Task> onRectangle)
     {
         var result = await task;
         await result.MatchAsync(onCircle, onRectangle);
@@ -1139,20 +1047,13 @@ public static class ShapeUnionExtensions
     // MatchAsync on Task<Shape> with sync handlers returning TResult
     public static async Task<TResult> MatchAsync<TResult>(
         this Task<Shape> task,
-        Func<Shape.Circle, TResult> onCircle,
-        Func<Shape.Rectangle, TResult> onRectangle)
+        Func<global::Circle, TResult> onCircle,
+        Func<global::Rectangle, TResult> onRectangle)
     {
         var result = await task;
         return result.Match(onCircle, onRectangle);
     }
 }
-
-// Additional generated members:
-public bool IsCircle => this is Circle;
-public bool IsRectangle => this is Rectangle;
-
-public bool TryGetCircle(out Circle circle) { /* ... */ }
-public bool TryGetRectangle(out Rectangle rectangle) { /* ... */ }
 ```
 
 ## Performance
@@ -1160,9 +1061,9 @@ public bool TryGetRectangle(out Rectangle rectangle) { /* ... */ }
 - ✅ **No reflection** - All matching is compile-time type checks
 - ✅ **Efficient dispatch** - Both `Match()` and `switch` compile to the same type checks
 - ✅ **Inlining** - JIT can inline simple match expressions
-- ℹ️ **Allocation** - Cases are records, so each instance is a heap allocation (~24 bytes).
-  These are short-lived gen0 objects, which the .NET GC handles very cheaply. Long `Map`/`Bind`
-  chains allocate one intermediate per step; that only matters in measured hot paths.
+- ℹ️ **Allocation** - Each case wrapper is a record, so constructing one is a heap allocation
+  (~24 bytes). These are short-lived gen0 objects, which the .NET GC handles very cheaply. Long
+  `Map`/`Bind` chains allocate one intermediate per step; that only matters in measured hot paths.
 
 Cases are reference types by design: it is what makes the hierarchy closed and keeps an
 invalid union state unrepresentable. A struct-based union cannot inherit, so it would have
@@ -1174,25 +1075,46 @@ an `object?` (which allocates anyway).
 | ID | Severity | Meaning |
 | --- | --- | --- |
 | `UNION001` | Error | Union generation failed (internal generator error) |
-| `UNION002` | Error | Type with `[Union]` must be declared `partial` |
-| `UNION003` | Error | Union case must be declared `partial record` |
 | `UNION004` | Warning | A `switch` does not handle every union case *(has a code fix)* |
 | `UNION005` | *(suppressor)* | Suppresses `CS8509` when every case is handled |
 | `UNION006` | *(suppressor)* | Suppresses `IDE0010` ("populate switch statement") when every case is handled |
 | `UNION007` | *(suppressor)* | Suppresses `IDE0072` ("populate switch expression") when every case is handled |
-| `UNION008` | Error | `[Union<T1..T8>]` case types resolve to the same wrapper name, even after namespace-prefix disambiguation |
-| `UNION009` | Warning | Two `[Union<T1..T8>]` cases share one CLR type once tuple/generic erasure is applied, so implicit conversions were omitted for the **whole union**, not just the colliding pair |
-| `UNION010` | Warning | A generic root's default wrapper name shadows its own case type; add `[UnionCaseName<T>]` before the compiler reports `CS8968` |
+| `UNION008` | Error | Case types resolve to the same wrapper name, even after namespace-prefix disambiguation |
+| `UNION009` | Warning | Two cases share one CLR type once tuple/generic erasure is applied, so implicit conversions were omitted for the **whole union**, not just the colliding pair |
+| `UNION012` | Error | A case type is an interface, which C# forbids as the target of a user-defined conversion |
 
-`UNION001`-`UNION003` are structural errors and cannot be configured away: without them the
-generator cannot emit valid code. `UNION004` and `UNION008`-`UNION010` are normal analyzer rules
-and can be tuned through `.editorconfig`. `UNION008` is specific to `[Union<T1..T8>]`: nested
-`[Union]` cases are literal, distinct type names, so they cannot collide the way generated wrapper
-names can.
+`UNION001` is a structural error and cannot be configured away: without it the generator cannot
+report that it failed to emit valid code. `UNION004`, `UNION008`, `UNION009`, and `UNION012` are
+normal analyzer rules and can be tuned through `.editorconfig`, though tuning `UNION008`/`UNION009`/`UNION012`
+down does not make the underlying shape any more legal - they diagnose conditions the generator
+cannot emit working code for, not style preferences.
+
+### `UNION009`: implicit conversions omitted for the whole union
+
+Two cases can have distinct wrapper names yet still erase to the *same* CLR type once generics
+and tuple element names are stripped away - for example two named tuples that both become
+`ValueTuple<int, int>`. The generator cannot emit two `implicit operator Root(ValueTuple<int,
+int>)` overloads (that is `CS0557`, ambiguous user-defined conversions), so it falls back to a
+single all-or-nothing switch: `EmitImplicitConversions` is one bool for the entire union, not one
+per case. When any two cases collide, **no case in that union gets an implicit conversion** -
+including cases whose CLR type collides with nothing at all - and the generator reports
+**UNION009** once, naming the colliding pair, instead of silently emitting a broken subset. In a
+union with three or more cases this is easy to misread as "only the colliding pair loses its
+conversion" - it is not. Construct **every** case wrapper directly with `new Root.CaseName(value)`
+once the union has any collision, even for the cases that were never part of it.
+
+```csharp
+// (int, int) and (int X, int Y) both erase to ValueTuple<int, int>. Only the unnamed tuple can
+// take an explicit override here - a named tuple cannot be an attribute type argument (CS8970),
+// and [UnionCaseName<T>] is itself an attribute.
+[UnionCaseName<(int, int)>("Point")]
+public abstract partial record Geo : IUnion<(int, int), (int X, int Y)>;
+// warning UNION009: Union 'Geo' has case types 'Point, TupleOfInt32Int32' that share one CLR type...
+```
 
 ## See Also
 
 - [ResultOf<T, E>](ResultOf.md) - Combine with Result for error handling
 - [Option<T>](Option.md) - Built-in union for optional values
 - [Pipe Extensions](Pipe.md) - Chain transformations on union values
-- [04_UnionTypes.cs](../../../../examples/04_UnionTypes.cs) - Runnable example: payment methods, API states, shapes
+- [04_UnionTypes.cs](../../../../examples/04_UnionTypes.cs) - Runnable example: payment methods, API states, shapes, and a mixed-type union (class, enum, struct, string)
