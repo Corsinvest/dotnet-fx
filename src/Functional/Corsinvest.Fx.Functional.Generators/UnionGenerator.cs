@@ -62,6 +62,16 @@ public class UnionGenerator : IIncrementalGenerator
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
+    private static readonly DiagnosticDescriptor InterfaceCaseTypeDescriptor = new(
+        id: "UNION012",
+        title: "Union case type cannot be an interface",
+        messageFormat: "Union '{0}' has case type '{1}', which is an interface; C# forbids a "
+                     + "user-defined conversion to or from an interface, so the generated implicit "
+                     + "conversion cannot compile",
+        category: "Design",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true);
+
     /// <summary>
     /// Like <see cref="SymbolDisplayFormat.FullyQualifiedFormat"/>, but without
     /// <see cref="SymbolDisplayMiscellaneousOptions.UseSpecialTypes"/>: generated code needs the
@@ -213,6 +223,7 @@ namespace Corsinvest.Fx.Functional
             TypeName: record.Identifier.Text,
             TypeParameters: GetTypeParameters(record),
             Variants: variants,
+            ContainingTypes: GetContainingTypeChain(record),
             Location: record.Identifier.GetLocation()
         );
 
@@ -244,6 +255,49 @@ namespace Corsinvest.Fx.Functional
         return string.Empty;
     }
 
+    /// <summary>
+    /// Walks a type declaration's containing-type chain, outermost first, capturing enough about
+    /// each ancestor to re-emit its opening declaration line so a generated partial can be nested
+    /// back inside it. Empty when <paramref name="node"/> is not a nested type.
+    /// </summary>
+    /// <param name="node">The type declaration whose ancestors to walk.</param>
+    private static List<ContainingTypeInfo> GetContainingTypeChain(SyntaxNode node)
+    {
+        var chain = new List<ContainingTypeInfo>();
+
+        for (var parent = node.Parent; parent is not null; parent = parent.Parent)
+        {
+            if (parent is not TypeDeclarationSyntax typeDecl) { continue; }
+
+            var typeParameters = typeDecl.TypeParameterList is null
+                ? string.Empty
+                : typeDecl.TypeParameterList.ToString();
+
+            chain.Add(new ContainingTypeInfo(GetTypeDeclarationKeyword(typeDecl), typeDecl.Identifier.Text, typeParameters));
+        }
+
+        chain.Reverse();
+        return chain;
+    }
+
+    /// <summary>
+    /// The declaration keyword(s) for a type declaration - <c>class</c>, <c>record</c>,
+    /// <c>record struct</c>, <c>struct</c>, or <c>interface</c> - as needed to re-declare a
+    /// matching partial around a nested union.
+    /// </summary>
+    /// <param name="typeDecl">The type declaration to inspect.</param>
+    private static string GetTypeDeclarationKeyword(TypeDeclarationSyntax typeDecl)
+        => typeDecl switch
+        {
+            RecordDeclarationSyntax record => record.ClassOrStructKeyword.IsKind(SyntaxKind.StructKeyword)
+                ? "record struct"
+                : "record",
+            ClassDeclarationSyntax => "class",
+            StructDeclarationSyntax => "struct",
+            InterfaceDeclarationSyntax => "interface",
+            _ => "class"
+        };
+
     private static string GetTypeParameters(RecordDeclarationSyntax record)
         => record.TypeParameterList is null
             ? string.Empty
@@ -264,11 +318,68 @@ namespace Corsinvest.Fx.Functional
         }
     }
 
+    /// <summary>
+    /// Builds a hint name that is unique across the whole compilation for
+    /// <see cref="SourceProductionContext.AddSource(string, string)"/>, from the namespace,
+    /// containing-type chain, type name and (for a generic root) its arity.
+    /// </summary>
+    /// <remarks>
+    /// The bare type name alone collides whenever two unions share a name in different namespaces
+    /// or containing types - ordinary in real code (<c>Billing.Result</c>, <c>Shipping.Result</c>)
+    /// - which fails with <c>CS8785</c> and silently drops generation for every union after the
+    /// first with that name. Dots are legal in a hint name; angle brackets, commas and other
+    /// characters that show up in a type parameter list are not, so anything outside
+    /// <c>[A-Za-z0-9_.]</c> is replaced with <c>_</c>.
+    /// </remarks>
+    /// <param name="namespace">The union root's namespace, or empty for the global namespace.</param>
+    /// <param name="containingTypeNames">The names of the ancestor types, outermost first.</param>
+    /// <param name="typeName">The union root's own simple name.</param>
+    /// <param name="arity">The union root's type parameter count; 0 for a non-generic root.</param>
+    /// <param name="suffix">The part identifying which generated file this is, e.g. <c>"g"</c> or <c>"Union.g"</c>.</param>
+    private static string BuildHintName(string @namespace,
+                                        IEnumerable<string> containingTypeNames,
+                                        string typeName,
+                                        int arity,
+                                        string suffix)
+    {
+        var segments = new List<string>();
+
+        if (!string.IsNullOrEmpty(@namespace))
+        {
+            segments.Add(@namespace);
+        }
+
+        segments.AddRange(containingTypeNames);
+
+        segments.Add(arity > 0 ? $"{typeName}_{arity}" : typeName);
+
+        var sanitized = SanitizeHintNameSegment(string.Join(".", segments));
+
+        return $"{sanitized}.{suffix}.cs";
+    }
+
+    private static string SanitizeHintNameSegment(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        foreach (var c in value)
+        {
+            sb.Append(char.IsLetterOrDigit(c) || c is '_' or '.' ? c : '_');
+        }
+        return sb.ToString();
+    }
+
     private static void GenerateUnion(SourceProductionContext context, UnionInfo unionInfo)
     {
         try
         {
-            context.AddSource($"{unionInfo.TypeName}.g.cs", GenerateUnionSource(unionInfo));
+            var hintName = BuildHintName(
+                unionInfo.Namespace,
+                unionInfo.ContainingTypes.Select(t => t.Name),
+                unionInfo.TypeName,
+                arity: 0,
+                suffix: "g");
+
+            context.AddSource(hintName, GenerateUnionSource(unionInfo));
         }
         catch (Exception ex)
         {
@@ -297,6 +408,14 @@ namespace Corsinvest.Fx.Functional
         {
             sb.AppendLine($"namespace {unionInfo.Namespace};");
             sb.AppendLine();
+        }
+
+        // Re-open each ancestor type, outermost first, so a union nested inside another type
+        // lands back inside it instead of becoming a phantom top-level type.
+        foreach (var containingType in unionInfo.ContainingTypes)
+        {
+            sb.AppendLine($"public partial {containingType.Keyword} {containingType.Name}{containingType.TypeParameters}");
+            sb.AppendLine("{");
         }
 
         // Type declaration
@@ -328,8 +447,14 @@ namespace Corsinvest.Fx.Functional
 
         sb.AppendLine("}");
 
-        // Union extensions 
+        // Union extensions
         GenerateUnionExtensions(sb, unionInfo);
+
+        // Close the ancestor types opened above, innermost first.
+        for (var i = 0; i < unionInfo.ContainingTypes.Count; i++)
+        {
+            sb.AppendLine("}");
+        }
 
         return sb.ToString();
     }
@@ -629,8 +754,47 @@ namespace Corsinvest.Fx.Functional
             caseNames: names,
             emitImplicitConversions: distinctClrTypes == caseTypes.Length,
             hasNameCollision: hasNameCollision,
+            containingTypes: GetContainingTypeChain(root),
             location: root.Locations.FirstOrDefault());
     }
+
+    /// <summary>
+    /// Walks a type symbol's containing-type chain, outermost first, capturing enough about each
+    /// ancestor to re-emit its opening declaration line so a generated partial can be nested back
+    /// inside it. Empty when <paramref name="type"/> is not a nested type.
+    /// </summary>
+    /// <param name="type">The type symbol whose ancestors to walk.</param>
+    private static ImmutableArray<ContainingTypeInfo> GetContainingTypeChain(INamedTypeSymbol type)
+    {
+        var chain = new List<ContainingTypeInfo>();
+
+        for (var current = type.ContainingType; current is not null; current = current.ContainingType)
+        {
+            var typeParameters = current.TypeParameters.Length == 0
+                ? string.Empty
+                : "<" + string.Join(", ", current.TypeParameters.Select(p => p.Name)) + ">";
+
+            chain.Add(new ContainingTypeInfo(GetTypeDeclarationKeyword(current), current.Name, typeParameters));
+        }
+
+        chain.Reverse();
+        return chain.ToImmutableArray();
+    }
+
+    /// <summary>
+    /// The declaration keyword(s) for a type symbol - <c>class</c>, <c>record</c>,
+    /// <c>record struct</c>, or <c>struct</c> - as needed to re-declare a matching partial.
+    /// </summary>
+    /// <param name="type">The type symbol to inspect.</param>
+    private static string GetTypeDeclarationKeyword(INamedTypeSymbol type)
+        => (type.IsRecord, type.TypeKind) switch
+        {
+            (true, TypeKind.Struct) => "record struct",
+            (true, _) => "record",
+            (false, TypeKind.Struct) => "struct",
+            (false, TypeKind.Interface) => "interface",
+            _ => "class"
+        };
 
     /// <summary>
     /// Reduces a type to the form the CLR actually sees, so that two case types compare equal
@@ -710,6 +874,7 @@ namespace Corsinvest.Fx.Functional
         foreach (var attribute in root.GetAttributes())
         {
             if (attribute.AttributeClass is not { Name: "UnionCaseNameAttribute" } attributeClass) { continue; }
+            if (attributeClass.ContainingNamespace?.ToDisplayString() != "Corsinvest.Fx.Functional") { continue; }
             if (attributeClass.TypeArguments.Length != 1) { continue; }
             if (attribute.ConstructorArguments.Length != 1) { continue; }
             if (attribute.ConstructorArguments[0].Value is not string name) { continue; }
@@ -733,6 +898,19 @@ namespace Corsinvest.Fx.Functional
                 CaseNameCollisionDescriptor, info.Location ?? Location.None, info.TypeName));
             return;
         }
+
+        var hasInterfaceCaseType = false;
+        foreach (var caseType in info.CaseTypes)
+        {
+            if (caseType.TypeKind == TypeKind.Interface)
+            {
+                hasInterfaceCaseType = true;
+                context.ReportDiagnostic(Diagnostic.Create(
+                    InterfaceCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName, caseType.Name));
+            }
+        }
+
+        if (hasInterfaceCaseType) { return; }
 
         if (!info.EmitImplicitConversions)
         {
@@ -777,6 +955,14 @@ namespace Corsinvest.Fx.Functional
             sb.AppendLine();
         }
 
+        // Re-open each ancestor type, outermost first, so a union root nested inside another type
+        // lands back inside it instead of becoming a phantom top-level type.
+        foreach (var containingType in info.ContainingTypes)
+        {
+            sb.AppendLine($"public partial {containingType.Keyword} {containingType.Name}{containingType.TypeParameters}");
+            sb.AppendLine("{");
+        }
+
         var root = info.TypeName + info.TypeParameters;
 
         sb.AppendLine($"public abstract partial record {root}");
@@ -817,7 +1003,24 @@ namespace Corsinvest.Fx.Functional
 
         sb.AppendLine("}");
 
-        context.AddSource($"{info.TypeName}.Union.g.cs", sb.ToString());
+        // Close the ancestor types opened above, innermost first.
+        for (var i = 0; i < info.ContainingTypes.Length; i++)
+        {
+            sb.AppendLine("}");
+        }
+
+        var arity = info.TypeParameters.Length == 0
+            ? 0
+            : info.TypeParameters.Count(c => c == ',') + 1;
+
+        var hintName = BuildHintName(
+            info.Namespace,
+            info.ContainingTypes.Select(t => t.Name),
+            info.TypeName,
+            arity,
+            suffix: "Union.g");
+
+        context.AddSource(hintName, sb.ToString());
     }
 
     /// <summary>
@@ -920,6 +1123,7 @@ internal record UnionInfo(
     string TypeName,
     string TypeParameters,
     List<VariantInfo> Variants,
+    List<ContainingTypeInfo> ContainingTypes,
     Location? Location
 );
 

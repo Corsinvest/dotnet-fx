@@ -14,6 +14,7 @@ internal sealed class GenericUnionInfo(
     ImmutableArray<string> caseNames,
     bool emitImplicitConversions,
     bool hasNameCollision,
+    ImmutableArray<ContainingTypeInfo> containingTypes,
     Location? location)
 {
     public string Namespace { get; } = @namespace;
@@ -39,5 +40,18 @@ internal sealed class GenericUnionInfo(
     /// </summary>
     public bool HasNameCollision { get; } = hasNameCollision;
 
+    /// <summary>
+    /// The chain of types the union root is nested inside, outermost first. Empty for a top-level
+    /// union root.
+    /// </summary>
+    public ImmutableArray<ContainingTypeInfo> ContainingTypes { get; } = containingTypes;
+
     public Location? Location { get; } = location;
 }
+
+/// <summary>
+/// Enough about one ancestor type declaration to re-emit its opening line so a generated partial
+/// can be nested back inside it: its declaration keyword (<c>class</c>, <c>record</c>,
+/// <c>struct</c>, <c>record struct</c>, ...), name, and type parameter list.
+/// </summary>
+internal sealed record ContainingTypeInfo(string Keyword, string Name, string TypeParameters);

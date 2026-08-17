@@ -437,6 +437,174 @@ public class GenericUnionGeneratorTests
     }
 
     [Fact]
+    public void Reports_UNION012_WhenACaseTypeIsAnInterface()
+    {
+        var diagnostics = GetGeneratorDiagnostics("""
+            using Corsinvest.Fx.Functional;
+
+            public interface IShape;
+            public record Cat(string Name);
+
+            [Union<IShape, Cat>]
+            public abstract partial record Pet;
+            """);
+
+        var diagnostic = Assert.Single(diagnostics.Where(d => d.Id == "UNION012"));
+        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
+        Assert.Contains("IShape", diagnostic.GetMessage());
+    }
+
+    // ---- Regression coverage: namespaced / nested union roots, and attribute look-alikes -------
+    //
+    // Two of the four blockers fixed here (bare-name hint collisions, and a nested root producing
+    // a phantom top-level type) survived eleven prior commits and every per-task review because no
+    // existing test put a union root inside a namespace or another type. These tests close that
+    // gap; do not remove them.
+
+    [Fact]
+    public void NamespacedRoot_CompilesEndToEnd_WithSwitchAndImplicitConversion()
+    {
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+
+            namespace Billing
+            {
+                public record Cat(string Name);
+                public record Dog(string Name);
+
+                [Union<Cat, Dog>]
+                public abstract partial record Pet;
+
+                public static class Usage
+                {
+                    public static string Describe(Pet pet) => pet switch
+                    {
+                        Pet.Cat(var cat) => cat.Name,
+                        Pet.Dog(var dog) => dog.Name
+                    };
+
+                    public static Pet Make() => new Cat("Whiskers");
+                }
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void TwoSameNamedRoots_InDifferentNamespaces_BothGenerate_NoHintNameCollision()
+    {
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+
+            namespace Billing
+            {
+                public record Cat(string Name);
+                public record Dog(string Name);
+
+                [Union<Cat, Dog>]
+                public abstract partial record Pet;
+            }
+
+            namespace Shipping
+            {
+                public record Cat(string Name);
+                public record Dog(string Name);
+
+                [Union<Cat, Dog>]
+                public abstract partial record Pet;
+            }
+
+            public static class Usage
+            {
+                public static string DescribeBilling(Billing.Pet pet) => pet switch
+                {
+                    Billing.Pet.Cat(var cat) => cat.Name,
+                    Billing.Pet.Dog(var dog) => dog.Name
+                };
+
+                public static string DescribeShipping(Shipping.Pet pet) => pet switch
+                {
+                    Shipping.Pet.Cat(var cat) => cat.Name,
+                    Shipping.Pet.Dog(var dog) => dog.Name
+                };
+
+                public static Billing.Pet MakeBilling() => new Billing.Cat("Whiskers");
+                public static Shipping.Pet MakeShipping() => new Shipping.Cat("Tom");
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+
+        // CS8785: two generated files claimed the same hint name, so the generator dropped one of
+        // them silently. This is the exact failure mode the bare-name hint (TypeName.Union.g.cs)
+        // produced for two same-named roots in different namespaces.
+        Assert.DoesNotContain(diagnostics, d => d.Id == "CS8785");
+    }
+
+    [Fact]
+    public void NestedRoot_GeneratesInsideItsContainingType_AndCompiles()
+    {
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial class Outer
+            {
+                [Union<Cat, Dog>]
+                public abstract partial record Pet;
+            }
+
+            public static class Usage
+            {
+                public static string Describe(Outer.Pet pet) => pet switch
+                {
+                    Outer.Pet.Cat(var cat) => cat.Name,
+                    Outer.Pet.Dog(var dog) => dog.Name
+                };
+
+                public static Outer.Pet Make() => new Cat("Whiskers");
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void DecoyUnionCaseNameAttribute_FromAnotherNamespace_DoesNotRenameTheCase()
+    {
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            namespace Evil
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = true)]
+                public sealed class UnionCaseNameAttribute<T> : System.Attribute
+                {
+                    public UnionCaseNameAttribute(string name) { }
+                }
+            }
+
+            namespace App
+            {
+                public record Cat(string Name);
+                public record Dog(string Name);
+
+                [Union<Cat, Dog>]
+                [Evil.UnionCaseName<Cat>("ShouldNotApply")]
+                public abstract partial record Pet;
+            }
+            """);
+
+        // The decoy attribute must not rename the Cat case: only the real
+        // Corsinvest.Fx.Functional.UnionCaseNameAttribute<T> should be honoured.
+        Assert.Contains("public sealed partial record Cat(", generated);
+        Assert.DoesNotContain("ShouldNotApply", generated);
+    }
+
+    [Fact]
     public void Analyzer_ReportsMissingCase_OnGenericUnion()
     {
         var diagnostics = CompileWithGenerator($$"""

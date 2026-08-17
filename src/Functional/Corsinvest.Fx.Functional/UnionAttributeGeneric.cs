@@ -11,9 +11,11 @@ namespace Corsinvest.Fx.Functional;
 /// <c>switch</c> work directly on the union.
 /// </para>
 /// <para>
-/// Any type can be a case: classes, sealed classes, records, structs, enums, interfaces,
-/// primitives, arrays, closed generics and tuples. Value-type cases are stored in typed fields,
-/// so nothing is boxed.
+/// Any type can be a case: classes, sealed classes, records, structs, enums, primitives, arrays,
+/// closed generics and unnamed tuples. Value-type cases are stored in typed fields, so nothing is
+/// boxed. Interfaces cannot be case types: the generator always emits an implicit conversion
+/// operator, and C# forbids user-defined conversions to or from an interface. A tuple with element
+/// names cannot appear as an attribute type argument at all; use an unnamed tuple instead.
 /// </para>
 /// </remarks>
 /// <example>
