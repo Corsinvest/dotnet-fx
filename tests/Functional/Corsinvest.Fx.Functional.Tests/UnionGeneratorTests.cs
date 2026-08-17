@@ -555,6 +555,91 @@ public class UnionGeneratorTests
     }
 
     [Fact]
+    public void NestedRoot_InsideGenericContainingType_CompilesEndToEnd()
+    {
+        // Regression for a code-review finding on the Task 6 restoration of MatchAsync/
+        // {Root}UnionExtensions: both used to build the containing-type chain from the ancestor's
+        // bare name only, dropping its own type parameters, so a root nested inside Outer<T>
+        // referenced plain "Outer.Pet" instead of "Outer<T>.Pet" - CS0305 ("Outer<T> requires 1
+        // type argument(s)") the moment either restored member's Task<Outer.Pet> tried to compile.
+        // This exercises both restored members, not just the wrapper (which never had this bug).
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+            using System.Threading.Tasks;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial class Outer<T>
+            {
+                public abstract partial record Pet : IUnion<Cat, Dog>;
+            }
+
+            public static class Usage
+            {
+                public static async Task<string> DescribeAsync(Outer<int>.Pet pet)
+                {
+                    string result = "";
+                    await pet.MatchAsync(
+                        async cat => { await Task.Delay(1); result = cat.Name; },
+                        async dog => { await Task.Delay(1); result = dog.Name; }
+                    );
+                    return result;
+                }
+
+                public static Task<string> DescribeViaTaskExtensionAsync(Task<Outer<int>.Pet> petTask)
+                    => petTask.MatchAsync(
+                        cat => cat.Name,
+                        dog => dog.Name
+                    );
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void TwoSameNamedRoots_InDifferentContainingTypes_UnionExtensionsClassesDoNotCollide()
+    {
+        // Regression for the same code-review finding: the {Root}UnionExtensions class is a
+        // top-level static class (never nested, unlike the wrapper types), so two roots both named
+        // Pet, nested in two different containing types in the same namespace, would both try to
+        // emit a top-level PetUnionExtensions and collide on CS0101 unless the class name is
+        // disambiguated by the containing-type chain. OuterA and OuterB have the same arity (both
+        // non-generic) so this also confirms the containing type's own *name*, not just arity,
+        // feeds the disambiguation - GetArity alone would not be enough to tell them apart.
+        var diagnostics = CompileWithGenerator("""
+            using Corsinvest.Fx.Functional;
+            using System.Threading.Tasks;
+
+            public record Cat(string Name);
+            public record Dog(string Name);
+
+            public partial class OuterA
+            {
+                public abstract partial record Pet : IUnion<Cat, Dog>;
+            }
+
+            public partial class OuterB
+            {
+                public abstract partial record Pet : IUnion<Cat, Dog>;
+            }
+
+            public static class Usage
+            {
+                public static Task<string> DescribeA(Task<OuterA.Pet> petTask)
+                    => petTask.MatchAsync(cat => cat.Name, dog => dog.Name);
+
+                public static Task<string> DescribeB(Task<OuterB.Pet> petTask)
+                    => petTask.MatchAsync(cat => cat.Name, dog => dog.Name);
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+        Assert.DoesNotContain(diagnostics, d => d.Id == "CS0101");
+    }
+
+    [Fact]
     public void DecoyUnionCaseNameAttribute_FromAnotherNamespace_DoesNotRenameTheCase()
     {
         var generated = Generate("""

@@ -167,9 +167,7 @@ namespace Corsinvest.Fx.Functional
 
         foreach (var info in infos)
         {
-            var arity = info.TypeParameters.Length == 0
-                ? 0
-                : info.TypeParameters.Count(c => c == ',') + 1;
+            var arity = GetArity(info.TypeParameters);
 
             var key = string.Join(
                 ".",
@@ -233,6 +231,17 @@ namespace Corsinvest.Fx.Functional
         }
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Counts the type parameters in a <c>"&lt;T, E&gt;"</c>-shaped list as produced by
+    /// <see cref="UnionInfo.TypeParameters"/> or <see cref="ContainingTypeInfo.TypeParameters"/>;
+    /// 0 for an empty (non-generic) list.
+    /// </summary>
+    /// <param name="typeParameters">A type parameter list including angle brackets, or empty.</param>
+    private static int GetArity(string typeParameters)
+        => typeParameters.Length == 0
+            ? 0
+            : typeParameters.Count(c => c == ',') + 1;
 
     // ---- IUnion<T1..T8> path ------------------------------------------------
 
@@ -474,13 +483,17 @@ namespace Corsinvest.Fx.Functional
         // The Task<TRoot> extension class is a separate top-level static class in the same
         // namespace, not nested inside the ancestor chain re-opened above - so, unlike the bare
         // `root` used inside that chain, it needs the containing types back in front of the name
-        // to still resolve to the same type (e.g. Outer.Pet, not just Pet).
-        var qualifiedRoot = string.Join(".", info.ContainingTypes.Select(t => t.Name).Append(root));
+        // to still resolve to the same type (e.g. Outer.Pet, not just Pet). A generic containing
+        // type needs its own type parameters too (Outer<T>.Pet, not Outer.Pet) - dropping them
+        // produced CS0305 ("Outer<T> requires 1 type argument(s)") for any root nested inside a
+        // generic ancestor, exactly like the wrapper's own re-opening of that ancestor at line 424
+        // above already accounts for via containingType.TypeParameters.
+        var qualifiedRoot = string.Join(
+            ".",
+            info.ContainingTypes.Select(t => t.Name + t.TypeParameters).Append(root));
         GenerateUnionExtensions(sb, info, qualified, qualifiedRoot);
 
-        var arity = info.TypeParameters.Length == 0
-            ? 0
-            : info.TypeParameters.Count(c => c == ',') + 1;
+        var arity = GetArity(info.TypeParameters);
 
         var hintName = BuildHintName(
             info.Namespace,
@@ -621,15 +634,27 @@ namespace Corsinvest.Fx.Functional
                                                 ImmutableArray<string> qualified,
                                                 string root)
     {
-        // The extension class needs the root's own type parameters (if any) plus, for the first
-        // overload, an additional TResult - e.g. "<T, E, TResult>" for ResultOf<T, E>.
-        var rootTypeParams = info.TypeParameters.Length == 0
-            ? Array.Empty<string>()
-            : info.TypeParameters.Trim('<', '>').Split(',').Select(p => p.Trim()).ToArray();
+        // The extension class is a top-level static class, never nested (see the name-collision
+        // comment below), so it cannot lean on an enclosing generic type to bring a containing
+        // type's own type parameters into scope the way the wrapper's re-opened ancestor chain
+        // does. Every type parameter that appears anywhere in qualifiedRoot - the root's own, AND
+        // each ancestor's (e.g. the T in Outer<T>.Pet) - must therefore be declared directly on
+        // each MatchAsync overload, outermost ancestor first, root last, plus TResult for the two
+        // overloads that need it. Missing the ancestors' parameters here previously left
+        // `this Task<Outer<T>.Pet> task` referencing an unbound T (CS0246).
+        static string[] SplitTypeParams(string typeParameters)
+            => typeParameters.Length == 0
+                ? Array.Empty<string>()
+                : typeParameters.Trim('<', '>').Split(',').Select(p => p.Trim()).ToArray();
+
+        var allTypeParams = info.ContainingTypes
+            .SelectMany(t => SplitTypeParams(t.TypeParameters))
+            .Concat(SplitTypeParams(info.TypeParameters))
+            .ToArray();
 
         string TypeParamList(bool withResult)
         {
-            var all = withResult ? rootTypeParams.Append("TResult") : rootTypeParams;
+            var all = withResult ? allTypeParams.Append("TResult") : allTypeParams;
             var list = string.Join(", ", all);
             return list.Length == 0 ? string.Empty : $"<{list}>";
         }
@@ -637,8 +662,19 @@ namespace Corsinvest.Fx.Functional
         // Prefix with the containing-type chain so two same-named nested roots in the same
         // namespace (e.g. Outer1.Pet and Outer2.Pet) don't both try to emit a top-level
         // PetUnionExtensions and collide (CS0101) - the extension class itself is never nested,
-        // unlike the wrapper types, so it has no other scoping to fall back on.
-        var extensionsClassName = string.Concat(info.ContainingTypes.Select(t => t.Name).Append(info.TypeName)) + "UnionExtensions";
+        // unlike the wrapper types, so it has no other scoping to fall back on. An identifier
+        // cannot contain the angle brackets/commas of a type parameter list, so each segment's
+        // arity is appended instead (same "_{arity}" scheme BuildHintName already uses to keep
+        // generated file names distinct): Outer<T>.Pet and Outer<T, U>.Pet - or, degenerately, a
+        // non-generic Outer and a generic Outer<T> both containing a root named Pet - produce
+        // Outer_1PetUnionExtensions and Outer_2PetUnionExtensions (or OuterPetUnionExtensions vs
+        // Outer_1PetUnionExtensions), never the same identifier, because two containing types
+        // with the same simple name can only coexist in one scope by differing in arity.
+        var extensionsClassName = string.Concat(
+            info.ContainingTypes
+                .Select(t => t.Name + (GetArity(t.TypeParameters) > 0 ? $"_{GetArity(t.TypeParameters)}" : string.Empty))
+                .Append(info.TypeName))
+            + "UnionExtensions";
 
         sb.AppendLine($"public static class {extensionsClassName}");
         sb.AppendLine("{");
