@@ -1,0 +1,20 @@
+<Project>
+
+  <!--
+    Imported into every project that references this package, so `defer(...)` can be written
+    unqualified. The <GlobalUsing> item this replaces applied only to the package's own project -
+    it is an ordinary MSBuild item, not something NuGet forwards - so the README's claim that
+    global usings were enabled by default never held for a consumer.
+
+    Opt out by setting EnableDeferGlobalUsings to false before the PackageReference is evaluated.
+  -->
+
+  <PropertyGroup>
+    <EnableDeferGlobalUsings Condition="'$(EnableDeferGlobalUsings)' == ''">true</EnableDeferGlobalUsings>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(EnableDeferGlobalUsings)' == 'true' AND '$(ImplicitUsings)' == 'enable'">
+    <Using Include="Corsinvest.Fx.Defer.Defer" Static="true" />
+  </ItemGroup>
+
+</Project>

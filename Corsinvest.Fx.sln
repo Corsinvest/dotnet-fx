@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.0.11222.15 d18.0
+VisualStudioVersion = 18.0.11222.15
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
@@ -38,6 +38,10 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime.Tasks", "src\CompileTime\Corsinvest.Fx.CompileTime.Tasks\Corsinvest.Fx.CompileTime.Tasks.csproj", "{5FF5FD2F-1E34-4170-B137-FCD456F55933}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.CompileTime.Analyzers", "src\CompileTime\Corsinvest.Fx.CompileTime.Analyzers\Corsinvest.Fx.CompileTime.Analyzers.csproj", "{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Functional", "Functional", "{1CE9127C-1A06-B2C1-206D-58980D6CDEF3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Corsinvest.Fx.Functional.CodeFixes", "src\Functional\Corsinvest.Fx.Functional.CodeFixes\Corsinvest.Fx.Functional.CodeFixes.csproj", "{F341E90B-44DE-4EDC-A704-5D7578612C4C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -217,6 +221,18 @@ Global
 		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x64.Build.0 = Release|Any CPU
 		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x86.ActiveCfg = Release|Any CPU
 		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9}.Release|x86.Build.0 = Release|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Debug|x64.Build.0 = Debug|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Debug|x86.Build.0 = Debug|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Release|x64.ActiveCfg = Release|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Release|x64.Build.0 = Release|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Release|x86.ActiveCfg = Release|Any CPU
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -237,5 +253,7 @@ Global
 		{1691C985-2B6E-670C-99D7-E8EAF76BE8A1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{5FF5FD2F-1E34-4170-B137-FCD456F55933} = {1691C985-2B6E-670C-99D7-E8EAF76BE8A1}
 		{FCC1B4FB-688B-4BA1-85C5-28146B4AB6C9} = {1691C985-2B6E-670C-99D7-E8EAF76BE8A1}
+		{1CE9127C-1A06-B2C1-206D-58980D6CDEF3} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{F341E90B-44DE-4EDC-A704-5D7578612C4C} = {1CE9127C-1A06-B2C1-206D-58980D6CDEF3}
 	EndGlobalSection
 EndGlobal

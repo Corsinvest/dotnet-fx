@@ -2,23 +2,23 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <IsPackable>false</IsPackable>
 
     <!-- Test project overrides -->
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <NoWarn>CS1591;xUnit1051</NoWarn>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+
+
+    <!-- xunit.v3 4.x runs on Microsoft.Testing.Platform; VSTest is gone in the .NET 10 SDK -->
+
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.7.0" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="xunit.v3" Version="3.0.0" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.3" />
+    <!-- Needed to exercise the code fix provider (AdhocWorkspace, Formatter, CodeAction) -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.7.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,6 +34,10 @@
     <!-- Reference generator both as Analyzer and as Assembly for testing -->
     <ProjectReference Include="..\..\..\src\Functional\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\..\src\Functional\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj" ReferenceOutputAssembly="true" />
+    <!-- As an assembly, so the tests can instantiate the provider directly... -->
+    <ProjectReference Include="..\..\..\src\Functional\Corsinvest.Fx.Functional.CodeFixes\Corsinvest.Fx.Functional.CodeFixes.csproj" ReferenceOutputAssembly="true" />
+    <!-- ...and as an analyzer, so the fix is offered in the IDE while writing tests. -->
+    <ProjectReference Include="..\..\..\src\Functional\Corsinvest.Fx.Functional.CodeFixes\Corsinvest.Fx.Functional.CodeFixes.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

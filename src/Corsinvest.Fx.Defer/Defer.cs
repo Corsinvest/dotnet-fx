@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 namespace Corsinvest.Fx.Defer;
 
 #nullable enable
@@ -7,8 +12,17 @@ namespace Corsinvest.Fx.Defer;
 /// Automatically executes cleanup actions when scope exits (LIFO order).
 /// </summary>
 /// <remarks>
-/// Supports both synchronous and asynchronous cleanup actions.
-/// For async actions, prefer 'await using' pattern to avoid blocking.
+/// <para>
+/// Supports both synchronous and asynchronous cleanup actions. The async overload returns
+/// <see cref="IAsyncDisposable"/> rather than <see cref="IDisposable"/>, so <c>await using</c> is
+/// the only way to consume it - a plain <c>using</c> is a compile error, which is what keeps an
+/// async cleanup from being blocked on by accident.
+/// </para>
+/// <para>
+/// A deferred action that throws is swallowed, so the remaining defers still run - the same trade
+/// a <c>finally</c> makes. Nothing is logged and nothing is rethrown, so a cleanup whose failure
+/// matters has to handle it itself.
+/// </para>
 /// </remarks>
 /// <example>
 /// Synchronous defer:
@@ -21,23 +35,13 @@ namespace Corsinvest.Fx.Defer;
 /// }
 /// </code>
 ///
-/// Asynchronous defer (blocking):
-/// <code>
-/// void Example()
-/// {
-///     var connection = new DbConnection();
-///     using var _ = defer(async () => await connection.CloseAsync());
-///     // CloseAsync() called synchronously (blocks) on scope exit
-/// }
-/// </code>
-///
-/// Asynchronous defer (preferred - non-blocking):
+/// Asynchronous defer:
 /// <code>
 /// async Task ExampleAsync()
 /// {
 ///     var connection = new DbConnection();
-///     await using var _ = defer(async () => await connection.CloseAsync());
-///     // CloseAsync() called asynchronously (non-blocking) on scope exit
+///     await using var _ = defer(async () =&gt; await connection.CloseAsync());
+///     // CloseAsync() awaited on scope exit - never blocked on
 /// }
 /// </code>
 ///
@@ -45,9 +49,9 @@ namespace Corsinvest.Fx.Defer;
 /// <code>
 /// void Example()
 /// {
-///     using var _1 = defer(() => Console.WriteLine("First"));
-///     using var _2 = defer(() => Console.WriteLine("Second"));
-///     using var _3 = defer(() => Console.WriteLine("Third"));
+///     using var _1 = defer(() =&gt; Console.WriteLine("First"));
+///     using var _2 = defer(() =&gt; Console.WriteLine("Second"));
+///     using var _3 = defer(() =&gt; Console.WriteLine("Third"));
 ///     Console.WriteLine("Main");
 ///     // Output: Main, Third, Second, First
 /// }
@@ -65,7 +69,9 @@ public static class Defer
     /// using var _ = defer(() => Console.WriteLine("Cleanup"));
     /// </code>
     /// </example>
+#pragma warning disable IDE1006 // Stili di denominazione
     public static IDisposable defer(Action action) => new DeferredAction(action);
+#pragma warning restore IDE1006 // Stili di denominazione
 
     /// <summary>
     /// Defers asynchronous action execution to end of scope (LIFO order).
@@ -108,5 +114,7 @@ public static class Defer
     /// }
     /// </code>
     /// </example>
+#pragma warning disable IDE1006 // Stili di denominazione
     public static IAsyncDisposable defer(Func<Task> asyncAction) => new DeferredAsyncAction(asyncAction);
+#pragma warning restore IDE1006 // Stili di denominazione
 }

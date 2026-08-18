@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -192,7 +197,7 @@ public class InlineAsmGenerator : IIncrementalGenerator
     {
         var comment = new StringBuilder();
         comment.AppendLine($"                // Bytecode ({variant.Architecture}/{variant.Platform}):");
-        if (variant.Bytecode.Length == 0) { comment.AppendLine($"    // WARNING: Empty bytecode"); }
+        if (variant.Bytecode.Length == 0) { comment.AppendLine("    // WARNING: Empty bytecode"); }
 
         var codeBytes = variant.Bytecode.Length > 0
                         ? $"new byte[] {{ {(string.Join(", ", variant.Bytecode.Select(b => $"0x{b:X2}")))} }}"
@@ -310,10 +315,10 @@ public class InlineAsmGenerator : IIncrementalGenerator
 
     private static void GenerateCleanupMethod(StringBuilder sb, InlineAsmInfo info)
     {
-        sb.AppendLine($"    /// <summary>");
+        sb.AppendLine("    /// <summary>");
         sb.AppendLine($"    /// Frees the allocated executable memory for {info.MethodName}.");
-        sb.AppendLine($"    /// Call this during application shutdown if needed.");
-        sb.AppendLine($"    /// </summary>");
+        sb.AppendLine("    /// Call this during application shutdown if needed.");
+        sb.AppendLine("    /// </summary>");
         sb.AppendLine($"    public static unsafe void {info.MethodName}_Cleanup()");
         sb.AppendLine("    {");
         sb.AppendLine($"        if ({info.MethodName}_LazyPtr.IsValueCreated)");
@@ -334,8 +339,8 @@ public class InlineAsmGenerator : IIncrementalGenerator
         var paramNames = string.Join(", ", info.Parameters.Select(p => p.Name));
         var funcPtrType = BuildFunctionPointerType(info);
 
-        sb.AppendLine($"    [System.Runtime.CompilerServices.MethodImpl(");
-        sb.AppendLine($"        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(");
+        sb.AppendLine("        System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
         sb.AppendLine($"    public {staticModifier}unsafe partial {info.ReturnType} {info.MethodName}({parameters})");
         sb.AppendLine("    {");
         sb.AppendLine($"        var ptr = ({funcPtrType}){info.MethodName}_LazyPtr.Value;");

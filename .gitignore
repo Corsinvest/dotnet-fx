@@ -484,3 +484,9 @@ $RECYCLE.BIN/
 *.swp
 
 .claude
+# Stray file created by Windows redirection to the NUL device
+nul
+
+# Build-timing artefact regenerated on every build by Corsinvest.Fx.CompileTime
+# (see PerformanceCollector.cs). Contains machine-local paths and timestamps.
+CompileTimeReport.md

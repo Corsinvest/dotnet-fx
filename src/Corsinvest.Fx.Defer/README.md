@@ -37,14 +37,14 @@ void ProcessFile(string path)
 void ProcessFile(string path)
 {
     var file = File.Open(path);
-    using var _ = defer(file.Close);      // Cleanup declared here!
+    using var _1 = defer(file.Close);      // Cleanup declared here!
 
     var lock = AcquireLock();
-    using var _ = defer(() => ReleaseLock(lock));  // Next to acquisition
+    using var _2 = defer(() => ReleaseLock(lock));  // Next to acquisition
 
     var connection = new SqlConnection(connString);
     connection.Open();
-    using var _ = defer(connection.Close);  // Clear intent
+    using var _3 = defer(connection.Close);  // Clear intent
 
     // ... complex logic ...
     // All cleanup happens automatically in reverse order
@@ -120,15 +120,15 @@ void ProcessDataFile(string inputPath)
 {
     // Open input file
     var input = File.OpenRead(inputPath);
-    using var _ = defer(() => input.Close());
+    using var _1 = defer(() => input.Close());
 
     // Create temp file for processing
     var tempPath = Path.GetTempFileName();
-    using var _ = defer(() => File.Delete(tempPath));
+    using var _2 = defer(() => File.Delete(tempPath));
 
     // Open output
     var output = File.OpenWrite(tempPath);
-    using var _ = defer(() => output.Close());
+    using var _3 = defer(() => output.Close());
 
     // Process data...
     // All cleanup happens automatically in reverse order:
@@ -173,14 +173,14 @@ async Task ProcessOrderAsync(Order order)
 async Task<string> FetchDataAsync(string url)
 {
     var timer = Stopwatch.StartNew();
-    using var _ = defer(() =>
+    using var _1 = defer(() =>
     {
         timer.Stop();
         LogMetric("fetch_duration", timer.ElapsedMilliseconds);
     });
 
     var client = new HttpClient();
-    using var _ = defer(() => client.Dispose());
+    using var _2 = defer(() => client.Dispose());
 
     var response = await client.GetAsync(url);
     return await response.Content.ReadAsStringAsync();
@@ -197,10 +197,10 @@ async Task<string> FetchDataAsync(string url)
 void ProcessMultipleFiles(string[] paths)
 {
     var semaphore = new SemaphoreSlim(1);
-    using var _ = defer(() => semaphore.Dispose());
+    using var _1 = defer(() => semaphore.Dispose());
 
     var files = new List<FileStream>();
-    using var _ = defer(() => files.ForEach(f => f.Close()));
+    using var _2 = defer(() => files.ForEach(f => f.Close()));
 
     foreach (var path in paths)
     {
@@ -240,10 +240,27 @@ Exceptions in deferred actions are automatically suppressed to allow other defer
 ```csharp
 void Example()
 {
-    using var _ = defer(() => throw new Exception());  // Caught
-    using var _ = defer(() => Console.WriteLine("OK"));  // Still executes
+    using var _1 = defer(new Action(() => throw new Exception()));  // Caught, does not propagate
+    using var _2 = defer(() => Console.WriteLine("OK"));            // Still executes
 }
 // Output: "OK"
+```
+
+The `new Action(...)` there is not decoration: a lambda whose body is only a `throw` has no natural
+return type, so overload resolution picks `defer(Func<Task>)` and plain `using` then rejects the
+`IAsyncDisposable` it returns (CS8418). Typing the lambda picks the synchronous overload.
+
+**This suppression is deliberate but total.** A cleanup that fails does so silently - nothing is
+logged, nothing is rethrown, and the caller cannot tell it happened. That is what lets the
+remaining defers run, and it is the same trade `finally` makes when its own body throws. Where a
+failing cleanup matters, handle it inside the action:
+
+```csharp
+using var _ = defer(() =>
+{
+    try { connection.Close(); }
+    catch (Exception ex) { _logger.LogError(ex, "Failed to close connection"); }
+});
 ```
 
 ## Configuration
@@ -266,12 +283,25 @@ using static Corsinvest.Fx.Defer.Defer;
 
 ## Performance
 
-✅ Minimal allocations - Class-based with cleanup safety
-✅ Inline-friendly - Small methods, JIT can inline
-✅ No reflection - Direct calls only
-✅ Non-blocking async - Uses `await` instead of `.Result`/.Wait()`
-✅ Compile-time enforcement - Async defers MUST use `await using` (prevents blocking at compile-time)
-✅ Exception safety - Cleanup guaranteed even on exceptions
+`defer` is not free, and the honest comparison is against the `try/finally` it replaces. Measured
+on a scope wrapping one call, per invocation:
+
+| | allocation | 20M calls |
+| --- | --- | --- |
+| `try/finally` | 0 B | 79 ms |
+| `defer` | 24 B | 303 ms |
+
+The 24 bytes are the `DeferredAction` holding your delegate, and a lambda that captures adds its
+own closure on top. In a hot loop, use `finally`. Everywhere else - which is most code - 24 bytes
+buys the cleanup sitting next to the acquisition rather than pages below it.
+
+What you get for that:
+
+✅ No reflection - direct delegate calls only
+✅ Non-blocking async - `await`ed, never `.Result` or `.Wait()`
+✅ Compile-time enforcement - an async defer cannot be consumed by plain `using`
+✅ Exception safety - cleanup runs on the exception path too
+✅ Idempotent - `Interlocked.Exchange` means a double `Dispose()` runs the action once
 
 ## API Reference
 
@@ -287,14 +317,14 @@ IAsyncDisposable defer(Func<Task> asyncAction) // Async cleanup (requires 'await
 
 ```csharp
 // Synchronous cleanup
-using var _ = defer(() => Cleanup());
+using var _1 = defer(() => Cleanup());
 
 // Asynchronous cleanup (non-blocking)
-await using var _ = defer(async () => await CleanupAsync());
+await using var _2 = defer(async () => await CleanupAsync());
 
 // Method groups supported
-using var _ = defer(SomeMethod);
-await using var _ = defer(SomeAsyncMethod);
+using var _3 = defer(SomeMethod);
+await using var _4 = defer(SomeAsyncMethod);
 ```
 ## 🔧 Troubleshooting
 
@@ -309,10 +339,10 @@ await using var _ = defer(SomeAsyncMethod);
 var deferred = new DeferredAsyncAction(async () => await CleanupAsync());
 
 // ✅ Correct - for async cleanup
-await using var _ = defer(async () => await CleanupAsync());
+await using var _1 = defer(async () => await CleanupAsync());
 
 // ✅ Correct - for sync cleanup
-using var _ = defer(() => Cleanup());
+using var _2 = defer(() => Cleanup());
 ```
 
 

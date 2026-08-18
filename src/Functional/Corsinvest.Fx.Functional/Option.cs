@@ -1,48 +1,37 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 namespace Corsinvest.Fx.Functional;
+
+/// <summary>Represents the absence of a value.</summary>
+public sealed record None;
+
+/// <summary>Represents a present value.</summary>
+/// <typeparam name="T">The type of the value</typeparam>
+/// <param name="Value">The contained value</param>
+public sealed record Some<T>(T Value);
 
 /// <summary>
 /// Represents an optional value that may or may not be present.
-/// Use this type to make null handling explicit and type-safe.
 /// </summary>
 /// <typeparam name="T">The type of the optional value</typeparam>
 /// <remarks>
-/// This is a discriminated union type with two variants: Some (value present) and None (value absent).
-/// Use this type to eliminate null reference exceptions and make nullability explicit in function signatures.
-/// Supports LINQ query syntax, pattern matching, and async operations.
+/// A discriminated union with two cases, <see cref="Some{T}"/> and <see cref="None"/>, declared
+/// through <see cref="IUnion{T1,T2}"/>. The cases are standalone types; the generated wrappers
+/// <c>Option&lt;T&gt;.Some</c> and <c>Option&lt;T&gt;.None</c> are what a <c>switch</c> matches on.
 /// </remarks>
 /// <example>
-/// Basic usage:
 /// <code>
-/// Option&lt;User&gt; FindUser(int id)
+/// var name = FindUser(42) switch
 /// {
-///     var user = _db.Find(id);
-///     return user != null
-///         ? Option.Some(user)
-///         : Option.None&lt;User&gt;();
-/// }
-///
-/// // Pattern matching
-/// var result = FindUser(42);
-/// result.Match(
-///     some => Console.WriteLine($"Found: {some.Value.Name}"),
-///     () => Console.WriteLine("User not found")
-/// );
+///     Option&lt;User&gt;.Some(var some) =&gt; some.Value.Name,
+///     Option&lt;User&gt;.None =&gt; "unknown"
+/// };
 /// </code>
 /// </example>
-[Union]
-public partial record Option<T>
-{
-    /// <summary>
-    /// Represents a present value.
-    /// </summary>
-    /// <param name="Value">The contained value</param>
-    public partial record Some(T Value);
-
-    /// <summary>
-    /// Represents an absent value.
-    /// </summary>
-    public partial record None();
-}
+public abstract partial record Option<T> : IUnion<Some<T>, None>;
 
 /// <summary>
 /// Provides factory methods for creating <see cref="Option{T}"/> instances.
@@ -60,7 +49,7 @@ public static class Option
     /// var option = Option.Some(42);
     /// </code>
     /// </example>
-    public static Option<T> Some<T>(T value) => new Option<T>.Some(value);
+    public static Option<T> Some<T>(T value) => new Option<T>.Some(new Some<T>(value));
 
     /// <summary>
     /// Creates an empty option (no value present).
@@ -72,7 +61,7 @@ public static class Option
     /// var option = Option.None&lt;int&gt;();
     /// </code>
     /// </example>
-    public static Option<T> None<T>() => new Option<T>.None();
+    public static Option<T> None<T>() => new Option<T>.None(new None());
 
     /// <summary>
     /// Creates an option from a nullable value.

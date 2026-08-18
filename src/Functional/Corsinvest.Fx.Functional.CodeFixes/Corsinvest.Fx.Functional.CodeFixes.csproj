@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+
+    <!-- This is NOT a publishable package: it ships inside Corsinvest.Fx.Functional -->
+    <IsPackable>false</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <!-- Roslyn dependencies (not propagated). Workspaces is what a CodeFixProvider needs
+       on top of the analyzer packages, which is why code fixes live in their own assembly. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.7.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- The fix reads UNION004 diagnostics produced by the analyzer in the generators assembly. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Corsinvest.Fx.Functional.Generators\Corsinvest.Fx.Functional.Generators.csproj" />
+  </ItemGroup>
+
+</Project>

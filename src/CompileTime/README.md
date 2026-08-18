@@ -607,7 +607,7 @@ Detailed guides for advanced features:
 
 ## Related Packages
 
-- [Corsinvest.Fx.Union](../Corsinvest.Fx.Union/) - Source generators for unions
+- [Corsinvest.Fx.Functional](../Functional/Corsinvest.Fx.Functional/) - Discriminated unions via the IUnion marker interface, plus ResultOf and Option
 
 ## Inspiration
 

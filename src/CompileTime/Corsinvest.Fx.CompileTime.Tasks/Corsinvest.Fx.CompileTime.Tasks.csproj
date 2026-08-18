@@ -2,6 +2,12 @@
   <PropertyGroup>
     <!-- Target Frameworks -->
     <TargetFrameworks>net9.0;net10.0</TargetFrameworks>
+    <!--
+      Shipped inside the CompileTime package under tasks/, never as a package of its own.
+      The Pack="true" items below feed that parent package; packing this project directly
+      looks for a DLL at a path only the parent's layout has (NU5019).
+    -->
+    <IsPackable>false</IsPackable>
 
     <!-- Package Information -->
     <PackageId>Corsinvest.Fx.CompileTime.Tasks</PackageId>
@@ -16,9 +22,13 @@
 
   <ItemGroup>
     <!-- MSBuild Task dependencies -->
-    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="18.0.2" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="18.0.2" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" PrivateAssets="all" />
+    <!-- MSBuild 17.x: last line that still supports net9.0 hosts. 18.x requires net10.0+. -->
+    <PackageReference Include="Microsoft.Build.Tasks.Core" Version="17.14.28" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+
+    <!-- Pinned to override the vulnerable 9.0.0 pulled in transitively by Microsoft.Build.Tasks.Core -->
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="9.0.19" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Include shared files as links -->

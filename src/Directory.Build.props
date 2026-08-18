@@ -1,0 +1,32 @@
+<Project>
+
+  <!--
+    Everything under src/ is a shipping project unless it says otherwise, so packaging defaults
+    live here rather than being repeated in each .csproj. The repository-wide settings - version,
+    authors, licence, icon - stay in the root Directory.Build.props, which this import pulls in
+    first: MSBuild stops at the nearest file, so without it the root one would be skipped entirely.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!--
+      Opt-out rather than opt-in: a new library under src/ ships by default, and the ones that
+      exist only to be embedded in another package (analyzers, generators, the CompileTime driver)
+      set this to false themselves. Before this, IsPackable was declared on some projects and not
+      others, and `dotnet pack` on the solution quietly produced a package for the CompileTime
+      generator executable - which is already carried inside the CompileTime package's tools/.
+    -->
+    <IsPackable Condition="'$(IsPackable)' == ''">true</IsPackable>
+  </PropertyGroup>
+
+  <!--
+    Each package carries the README sitting next to it. The four projects that did this wrote it
+    four slightly different ways - one guarded with Exists(), one reaching up a directory - and
+    CompileTime's guard silently skipped a file that was never there, leaving PackageReadmeFile
+    pointing at nothing (NU5039).
+  -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true' AND Exists('$(MSBuildProjectDirectory)/README.md')">
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

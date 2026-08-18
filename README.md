@@ -48,7 +48,7 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
 ### ✅ Use Corsinvest.Fx When You Want
 
 - **Type-safe error handling** without exceptions (`ResultOf<T,E>`, `Option<T>`)
-- **Discriminated unions** with pattern matching (`[Union]` attribute)
+- **Discriminated unions** with pattern matching (`IUnion<T1..T8>` marker interface)
 - **Go-style resource cleanup** (`defer`)
 - **Data transformation pipelines** (`Pipe` extensions)
 - **Gradual adoption** in existing C# codebases
@@ -71,15 +71,15 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
 
 | Package | Description | Status |
 |---------|-------------|--------|
-| **[Corsinvest.Fx.Functional](src/Corsinvest.Fx.Functional/)** | `ResultOf<T,E>`, `Option<T>`, `[Union]` attribute. Railway-oriented programming, pattern matching, LINQ support. | ✅ Stable |
+| **[Corsinvest.Fx.Functional](src/Functional/Corsinvest.Fx.Functional/)** | `ResultOf<T,E>`, `Option<T>`, `IUnion<T1..T8>` marker interface. Railway-oriented programming, pattern matching, LINQ support. | ✅ Stable |
 | **[Corsinvest.Fx.Defer](src/Corsinvest.Fx.Defer/)** | Go-style defer statements for automatic cleanup on scope exit. | ✅ Stable |
 
 ### Experimental Packages
 
 | Package | Description | Status |
 |---------|-------------|--------|
-| **[Corsinvest.Fx.Comptime](src/Corsinvest.Fx.Comptime/)** | Zig-style compile-time computation using source generators. | 🧪 Experimental |
-| **[Corsinvest.Fx.Unsafe](src/Corsinvest.Fx.Unsafe/)** | Inline assembly wrappers and unsafe operations for performance-critical code. | 🧪 Experimental |
+| **[Corsinvest.Fx.CompileTime](src/CompileTime/)** | Zig-style compile-time computation using source generators. | 🧪 Experimental |
+| **[Corsinvest.Fx.Unsafe](src/Unsafe/Corsinvest.Fx.Unsafe/)** | Inline assembly wrappers and unsafe operations for performance-critical code. | 🧪 Experimental |
 
 ---
 
@@ -121,10 +121,10 @@ using var _ = defer(() => file.Close());
 // File closes automatically
 ```
 
-**Experimental packages**: Unsafe (inline assembly), Comptime (compile-time computation)
+**Experimental packages**: Unsafe (inline assembly), CompileTime (compile-time computation)
 
 📖 **See individual package READMEs for complete documentation**:
-- [Functional](src/Corsinvest.Fx.Functional/README.md) - ResultOf, Option, Union types
+- [Functional](src/Functional/Corsinvest.Fx.Functional/README.md) - ResultOf, Option, Union types
 - [Defer](src/Corsinvest.Fx.Defer/README.md) - Resource cleanup
 
 ---
@@ -147,6 +147,7 @@ The [`examples/`](examples/) folder contains practical, runnable code demonstrat
 - **[07_OptionChaining.cs](examples/07_OptionChaining.cs)** - OrElse cascading, Flatten, lazy evaluation
 - **[08_ResultOfRecover.cs](examples/08_ResultOfRecover.cs)** - Recovery strategies, retry logic
 - **[09_DeferAsync.cs](examples/09_DeferAsync.cs)** - Async resource cleanup
+- **[10_CompileTimeBasics.cs](examples/10_CompileTimeBasics.cs)** - Compile-time evaluation *(experimental)*
 
 Run all examples:
 
@@ -177,23 +178,47 @@ result.Match(
 
 ### Union Types - Discriminated Unions
 
-Pattern matching for different states:
+Case types are ordinary, independently declared types - the `IUnion<T1..T8>` marker interface just
+names the closed set:
 
 ```csharp
-[Union]
-public partial record PaymentMethod
-{
-    public partial record CreditCard(string Number, string ExpiryDate);
-    public partial record PayPal(string Email);
-    public partial record BankTransfer(string Iban, string Bic);
-}
+public record CreditCard(string Number, string ExpiryDate);
+public record PayPal(string Email);
+public record BankTransfer(string Iban, string Bic);
+
+public abstract partial record PaymentMethod : IUnion<CreditCard, PayPal, BankTransfer>;
 
 decimal CalculateFee(PaymentMethod payment) => payment.Match(
-    creditCard => 2.5m,
-    payPal => 1.5m,
-    bankTransfer => 0.0m
+    onCreditCard: creditCard => 2.5m,
+    onPayPal: payPal => 1.5m,
+    onBankTransfer: bankTransfer => 0.0m
 );
 ```
+
+Or with a native `switch`, checked for exhaustiveness:
+
+```csharp
+decimal CalculateFee(PaymentMethod payment) => payment switch
+{
+    PaymentMethod.CreditCard => 2.5m,
+    PaymentMethod.PayPal => 1.5m,
+    PaymentMethod.BankTransfer => 0.0m
+    // no discard arm needed - the hierarchy is closed.
+    // Add a case to the union and every switch that misses it warns (UNION004).
+};
+```
+
+The analyzers that enforce that install with the package: **UNION004** names each missing case and
+offers a code fix that writes the arms for you, while **UNION005/006/007** stand down `CS8509` and
+the IDE's "add a default case" suggestions, which would otherwise push you toward the discard arm
+that hides the next case you add. It works on `switch` statements too, which the compiler never
+checks at all.
+
+Because the case types are ordinary declarations, the same type can take part in more than one
+union, and a case can close over the union root's own type parameter - the shape `Option<T>` and
+`ResultOf<T, E>` are built from, and the reason this package uses an interface rather than an
+attribute; see the
+[Union Types guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#why-an-interface-and-not-an-attribute).
 
 ### Option - Null Safety
 
@@ -233,7 +258,7 @@ void ProcessFile(string path)
 
 For common issues and solutions, please refer to the **Troubleshooting** section in the README of the specific package you are using:
 
-- [Functional Package Troubleshooting](src/Corsinvest.Fx.Functional/README.md#-troubleshooting)
+- [Functional Package Troubleshooting](src/Functional/Corsinvest.Fx.Functional/README.md#-troubleshooting)
 - [Defer Package Troubleshooting](src/Corsinvest.Fx.Defer/README.md#-troubleshooting)
 
 If you still need help:
@@ -272,10 +297,13 @@ pwsh tests/RunTestsAndCoverage.ps1
 
 Each package has its own detailed README:
 
-- [Functional - Result, Option, Union](src/Corsinvest.Fx.Functional/README.md)
+- [Functional - Result, Option, Union](src/Functional/Corsinvest.Fx.Functional/README.md)
 - [Defer - Go-Style Defer](src/Corsinvest.Fx.Defer/README.md)
-- [Unsafe - Inline Assembly](src/Corsinvest.Fx.Unsafe/README.md) *(experimental)*
-- [Comptime - Compile-Time Computation](src/Corsinvest.Fx.Comptime/README.md) *(experimental)*
+- [Unsafe - Inline Assembly](src/Unsafe/Corsinvest.Fx.Unsafe/README.md) *(experimental)*
+- [CompileTime - Compile-Time Computation](src/CompileTime/README.md) *(experimental)*
+
+Upgrading? The [CHANGELOG](CHANGELOG.md) lists what changed, and 2.0.0's union rewrite has a
+[migration guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#migrating-from-1x).
 
 ---
 
@@ -296,7 +324,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **NuGet**: [Corsinvest.Fx packages](https://www.nuget.org/profiles/Corsinvest)
 - **GitHub**: [https://github.com/Corsinvest/dotnet-fx](https://github.com/Corsinvest/dotnet-fx)
 - **Issues**: [Report bugs or request features](https://github.com/Corsinvest/dotnet-fx/issues)
-- **Project Docs**: [PROJECT.md](PROJECT.md) - Philosophy, roadmap, decisions
+- **Package Docs**: [Functional](src/Functional/Corsinvest.Fx.Functional/README.md) · [Defer](src/Corsinvest.Fx.Defer/README.md) · [CompileTime](src/CompileTime/README.md) · [Unsafe](src/Unsafe/Corsinvest.Fx.Unsafe/README.md)
 
 ---
 

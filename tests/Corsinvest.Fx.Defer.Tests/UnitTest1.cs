@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using static Corsinvest.Fx.Defer.Defer;
 
 namespace Corsinvest.Fx.Defer.Tests;
@@ -38,6 +43,36 @@ public class DeferTests
 
         // Assert
         Assert.True(executed); // Executed after dispose
+    }
+
+    [Fact]
+    public void Defer_DisposedTwice_RunsTheActionOnce()
+    {
+        // Arrange
+        var count = 0;
+        var deferred = defer(() => count++);
+
+        // Act - a using block plus an explicit Dispose is the shape that happens by accident
+        deferred.Dispose();
+        deferred.Dispose();
+
+        // Assert
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task Defer_AsyncDisposedTwice_RunsTheActionOnce()
+    {
+        // Arrange
+        var count = 0;
+        var deferred = defer(() => { count++; return Task.CompletedTask; });
+
+        // Act
+        await deferred.DisposeAsync();
+        await deferred.DisposeAsync();
+
+        // Assert
+        Assert.Equal(1, count);
     }
 
     [Fact]

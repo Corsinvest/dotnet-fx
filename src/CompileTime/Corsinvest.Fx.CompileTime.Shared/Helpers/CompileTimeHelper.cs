@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using Microsoft.CodeAnalysis;
 
 namespace Corsinvest.Fx.CompileTime.Helpers;

@@ -1,0 +1,42 @@
+<Project>
+
+  <!--
+    Imported into every project that references this package.
+
+    The <GlobalUsing> items in the package's own .csproj apply to that project alone - they are an
+    ordinary MSBuild item, not something NuGet forwards - so without this file the README's promise
+    that Ok()/Fail()/Some() work unqualified was false in every consuming project.
+
+    Each group is opt-out through the matching property, set before the PackageReference is
+    evaluated (in Directory.Build.props, or a PropertyGroup above the ItemGroup in the csproj).
+  -->
+
+  <PropertyGroup>
+    <EnableFunctionalGlobalUsings Condition="'$(EnableFunctionalGlobalUsings)' == ''">true</EnableFunctionalGlobalUsings>
+    <EnableTryGlobalUsings Condition="'$(EnableTryGlobalUsings)' == ''">true</EnableTryGlobalUsings>
+  </PropertyGroup>
+
+  <!--
+    The namespace itself, so IUnion<...> can be written in a base list without a using - it is the
+    entry point to the union feature - plus Option.Some/None and ResultOf.Ok/Fail unqualified.
+  -->
+  <ItemGroup Condition="'$(EnableFunctionalGlobalUsings)' == 'true' AND '$(ImplicitUsings)' == 'enable'">
+    <Using Include="Corsinvest.Fx.Functional" />
+    <Using Include="Corsinvest.Fx.Functional.Option" Static="true" />
+    <Using Include="Corsinvest.Fx.Functional.ResultOf" Static="true" />
+  </ItemGroup>
+
+  <!--
+    Try()/TryAsync(), unqualified.
+
+    Only TryExtensions is imported statically. TryHelper.Try<T>(Func<T>) and
+    ResultOf.Try<T>(Func<T>) have identical signatures, so importing both statically makes every
+    unqualified Try() call ambiguous (CS0121) - and ResultOf has to be imported for Ok()/Fail().
+    ResultOf.Try is the one that wins here; TryHelper stays reachable as TryHelper.Try(...), which
+    is the only way to get its Action overloads returning ResultOf<Unit, E>.
+  -->
+  <ItemGroup Condition="'$(EnableTryGlobalUsings)' == 'true' AND '$(ImplicitUsings)' == 'enable'">
+    <Using Include="Corsinvest.Fx.Functional.TryExtensions" Static="true" />
+  </ItemGroup>
+
+</Project>

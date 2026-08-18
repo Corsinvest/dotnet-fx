@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
@@ -13,6 +13,13 @@
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
     <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)\GeneratedFiles</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
+
+  <!-- The test project drives TryGenerateUnion directly: SourceProductionContext has only a
+       non-public constructor taking Roslyn internals, so the failure path is unreachable
+       through the public generator surface. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Corsinvest.Fx.Functional.Tests" />
+  </ItemGroup>
 
   <!-- Roslyn dependencies (not propagated) -->
   <ItemGroup>

@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using Corsinvest.Fx.Functional;
 
 namespace Corsinvest.Fx.Examples;
@@ -76,7 +81,27 @@ public static class OptionBasics
 
         Console.WriteLine($"  User #1: {existingUser.Name}");
         Console.WriteLine($"  User #999: {missingUserDefault.Name} (default)");
+
+        // 7. Native switch, checked for exhaustiveness
+        Console.WriteLine("\n7️⃣  Switch Expression (exhaustiveness-checked)");
+        Console.WriteLine($"  User #1: {DescribeUser(FindUserById(1))}");
+        Console.WriteLine($"  User #999: {DescribeUser(FindUserById(999))}");
     }
+
+    // Option<T> variants are real types, so a plain switch works - no Match() needed.
+    //
+    // Note there is no discard arm: normally the compiler would demand one (CS8509),
+    // because it treats reference-type hierarchies as open. The UNION005 suppressor
+    // knows this hierarchy is closed and stands the warning down.
+    //
+    // Drop either arm and UNION004 names the variant that went missing, which a
+    // discard arm would otherwise have swallowed in silence.
+    private static string DescribeUser(Option<User> user)
+        => user switch
+        {
+            Option<User>.Some(var some) => $"{some.Value.Name} ({some.Value.Email})",
+            Option<User>.None => "not found"
+        };
 
     // Helper: Parse string to int safely
     private static Option<int> ParseInt(string input)

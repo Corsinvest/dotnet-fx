@@ -54,7 +54,7 @@ ResultOf<int, string> ParseAndValidate(string input) =>
 var result = ParseAndValidate("-123");
 result.Match(
     ok => Console.WriteLine($"Success: {ok.Value}"),
-    fail => Console.WriteLine($"Error: {fail.Error}") // "Error: Number cannot be negative."
+    fail => Console.WriteLine($"Error: {fail.ErrorValue}") // "Error: Number cannot be negative."
 );
 ```
 
@@ -78,8 +78,12 @@ ResultOf<int, Exception> failedResult = TryHelper.Try(() => int.Parse("abc"));
 
 // For actions that don't return a value
 ResultOf<Unit, Exception> actionResult = TryHelper.Try(() => Console.WriteLine("Hello"));
-// Ok(Unit)
+// Ok(Unit.Value)
 ```
+
+An `Action` produces nothing, but `ResultOf<void, E>` is not a thing you can write - `void` is not
+a type in C#. [`Unit`](./Unit.md) stands in for it: one value, no information, so the result carries
+only whether the action threw.
 
 ### 2. `.Try()` Extension Method for Pipelines
 
@@ -102,6 +106,39 @@ var failedResult = "abc"
 // failedResult is Fail(FormatException)
 ```
 
+## What gets caught
+
+`Try` catches `Exception` - every exception the delegate can throw, without distinction. That is
+what makes it composable, and it is also its sharpest edge:
+
+```csharp
+using var cts = new CancellationTokenSource();
+cts.Cancel();
+
+var result = await TryHelper.TryAsync(async () =>
+{
+    await Task.Delay(1000, cts.Token);
+    return 42;
+});
+
+result.IsOk;   // false - the cancellation came back as Fail(TaskCanceledException)
+```
+
+A cancellation becomes an ordinary failure rather than propagating, so a caller awaiting the token
+never sees it. Where cancellation has to stay cancellation, keep the `await` outside `Try` and wrap
+only the part that can genuinely fail - or map it back:
+
+```csharp
+var result = await TryHelper.TryAsync(work, ex => ex switch
+{
+    OperationCanceledException => throw ex,   // let cancellation through
+    _ => MyError.From(ex)
+});
+```
+
+The same applies to any exception your program is not meant to swallow. `Try` is for the errors you
+intend to handle as data; it does not decide which ones those are.
+
 ## Custom Error Handling
 
 By default, `Try` captures the raw `Exception`. You can provide an `errorMapper` function to convert the exception into a more specific error type, like a string, an enum, or a custom error record.
@@ -122,7 +159,7 @@ var content = ReadFile("invalid/path.txt");
 
 content.Match(
     ok => Console.WriteLine("File content loaded."),
-    fail => Console.WriteLine($"Error: {fail.Error}") // "Error: NotFound"
+    fail => Console.WriteLine($"Error: {fail.ErrorValue}") // "Error: NotFound"
 );
 ```
 
@@ -166,7 +203,7 @@ public async Task<ResultOf<JObject, string>> GetJsonAsync(string url) =>
 var result = await GetJsonAsync("https://api.example.com/data");
 result.Match(
     ok => Console.WriteLine("JSON loaded."),
-    fail => Console.WriteLine($"Error: {fail.Error}")
+    fail => Console.WriteLine($"Error: {fail.ErrorValue}")
 );
 ```
 
@@ -219,3 +256,10 @@ string message = result
     .GetValue(); // Unwraps the final string
 ```
 
+---
+
+## See also
+
+- **[Unit](./Unit.md)** - the stand-in for `void` that `Try(Action)` returns
+- **[ResultOf<T, E>](./ResultOf.md)** - what every `Try` hands back
+- **[Pipe](./Pipe.md)** - chaining a `Try` into a pipeline
