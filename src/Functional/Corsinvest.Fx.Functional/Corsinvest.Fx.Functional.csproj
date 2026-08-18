@@ -30,11 +30,6 @@
       ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- Package Content -->
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
-
   <!--
     Embed generator and code fixes in package as analyzers.
 

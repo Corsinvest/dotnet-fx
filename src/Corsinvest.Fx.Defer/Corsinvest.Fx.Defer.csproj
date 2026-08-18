@@ -14,11 +14,6 @@
     <EnableDeferGlobalUsings Condition="'$(EnableDeferGlobalUsings)' == ''">true</EnableDeferGlobalUsings>
   </PropertyGroup>
 
-  <!-- Package Content -->
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
-
   <!--
     Ship the global using to consumers. A <GlobalUsing> item applies only to the project declaring
     it, so the one that used to sit here never reached anyone referencing the package.

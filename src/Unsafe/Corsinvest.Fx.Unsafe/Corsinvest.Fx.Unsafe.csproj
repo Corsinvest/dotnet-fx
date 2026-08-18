@@ -19,11 +19,6 @@
     <ProjectReference Include="..\Corsinvest.Fx.Unsafe.Generators\Corsinvest.Fx.Unsafe.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- Package Content -->
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
-  </ItemGroup>
-
   <!--
     Embed generator in package as analyzer. The path walks out of this project directory, not out
     of $(OutputPath): $(OutputPath) is bin\$(Configuration)\$(TargetFramework)\, so
