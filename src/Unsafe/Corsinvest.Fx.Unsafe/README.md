@@ -456,7 +456,7 @@ See [tests/Corsinvest.Fx.Unsafe.Tests](../../../tests/Unsafe/Corsinvest.Fx.Unsaf
 
 ## License
 
-MIT License - see [LICENSE](../../LICENSE) for details
+MIT License - see [LICENSE](../../../LICENSE) for details
 
 ## Support
 

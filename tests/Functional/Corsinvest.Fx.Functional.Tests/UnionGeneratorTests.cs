@@ -1,4 +1,4 @@
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using System.Collections.Immutable;
@@ -951,6 +951,38 @@ public class UnionGeneratorTests
     }
 
     // ---- infrastructure ----------------------------------------------------
+
+    [Fact]
+    public void UnexpectedGeneratorFailure_IsReportedAsUNION001_InsteadOfCrashingTheBuild()
+    {
+        // A source generator that throws takes the whole compilation down with a bare CS8785 that
+        // names the generator but not the union that broke it. TryGenerateUnion catches that and
+        // returns UNION001 instead, so a generator bug stays diagnosable from the build log.
+        //
+        // No user input can currently make generation throw, so the failure is injected: a null
+        // UnionInfo makes the core dereference null on its first field access.
+        var failure = UnionGenerator.TryGenerateUnion(
+            addSource: _ => throw new InvalidOperationException("nothing should be generated"),
+            report: _ => throw new InvalidOperationException("no shape diagnostic is expected"),
+            info: null!);
+
+        Assert.NotNull(failure);
+        Assert.Equal("UNION001", failure!.Id);
+        Assert.Equal(DiagnosticSeverity.Error, failure.Severity);
+    }
+
+    [Fact]
+    public void SuccessfulGeneration_ReturnsNoFailureDiagnostic()
+    {
+        // The other half of the contract: a union that generates cleanly must not report UNION001.
+        var diagnostics = GetGeneratorDiagnostics($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Id == "UNION001"));
+    }
 
     private static string Generate(string source)
         => string.Join("\n", RunGenerator(source).Select(t => t.ToString()));

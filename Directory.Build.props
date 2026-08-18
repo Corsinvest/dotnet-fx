@@ -40,7 +40,7 @@
     <PackageProjectUrl>https://github.com/Corsinvest/dotnet-fx</PackageProjectUrl>
     <RepositoryUrl>https://github.com/Corsinvest/dotnet-fx.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <RepositoryBranch>main</RepositoryBranch>
+    <RepositoryBranch>master</RepositoryBranch>
     <PackageIcon>icon.png</PackageIcon>
     <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <PackageReleaseNotes>2.0.0 is a breaking change: the [Union]/[Union&lt;T1..T8&gt;] attributes are removed in favor of the IUnion&lt;T1..T8&gt; marker interface. See "Migrating from 1.x" in https://github.com/Corsinvest/dotnet-fx/blob/master/src/Functional/Corsinvest.Fx.Functional/docs/Union.md#migrating-from-1x</PackageReleaseNotes>

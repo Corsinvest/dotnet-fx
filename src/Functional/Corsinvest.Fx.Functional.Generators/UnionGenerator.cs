@@ -1,4 +1,4 @@
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Immutable;
@@ -114,8 +114,68 @@ namespace Corsinvest.Fx.Functional
             .Collect()
             .SelectMany(static (infos, _) => DeduplicatePartialDeclarations(infos!));
 
-        context.RegisterSourceOutput(unionRoots, static (spc, info) => GenerateUnion(spc, info));
+        context.RegisterSourceOutput(unionRoots, static (spc, info) => GenerateUnionGuarded(spc, info));
     }
+
+    /// <summary>
+    /// Runs <see cref="GenerateUnionCore"/> and turns any unexpected failure into UNION001.
+    /// </summary>
+    /// <remarks>
+    /// A source generator that throws takes the whole compilation down with a bare
+    /// <c>CS8785</c> naming the generator but not the union that broke it. Reporting the union's
+    /// own name and the exception message keeps a generator bug diagnosable from the build log.
+    /// Every failure reaching here is a defect in this generator, not in user code.
+    /// </remarks>
+    /// <param name="context">The source production context to report to.</param>
+    /// <param name="info">The resolved union model to generate from.</param>
+    private static void GenerateUnionGuarded(SourceProductionContext context, UnionInfo info)
+    {
+        var failure = TryGenerateUnion(
+            sourceText => context.AddSource(sourceText.HintName, sourceText.Text),
+            context.ReportDiagnostic,
+            info);
+
+        if (failure is not null)
+        {
+            context.ReportDiagnostic(failure);
+        }
+    }
+
+    /// <summary>
+    /// Generates a union's source, returning the UNION001 diagnostic instead of throwing when
+    /// generation fails.
+    /// </summary>
+    /// <remarks>
+    /// Split out from <see cref="GenerateUnionGuarded"/> so the failure path is reachable from a
+    /// test: <c>SourceProductionContext</c> has only a non-public constructor taking Roslyn
+    /// internals, so it cannot be built directly.
+    /// </remarks>
+    /// <param name="addSource">Receives each generated file. Called once per union.</param>
+    /// <param name="report">Receives any diagnostic the union's shape warrants.</param>
+    /// <param name="info">The resolved union model to generate from.</param>
+    internal static Diagnostic? TryGenerateUnion(Action<GeneratedSource> addSource,
+                                                 Action<Diagnostic> report,
+                                                 UnionInfo info)
+    {
+        try
+        {
+            GenerateUnionCore(addSource, report, info);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return Diagnostic.Create(
+                UnionGenerationFailedDescriptor,
+                info?.Location ?? Location.None,
+                info?.TypeName ?? "<unknown>",
+                ex.Message);
+        }
+    }
+
+    /// <summary>A generated file: its hint name and its content.</summary>
+    /// <param name="HintName">The unique hint name to register the source under.</param>
+    /// <param name="Text">The generated source text.</param>
+    internal readonly record struct GeneratedSource(string HintName, string Text);
 
     private const string UnionInterfaceName = "IUnion";
     private const string UnionNamespace = "Corsinvest.Fx.Functional";
@@ -462,13 +522,16 @@ namespace Corsinvest.Fx.Functional
     /// <summary>
     /// Emits the generated source for one <c>IUnion&lt;...&gt;</c> declaration.
     /// </summary>
-    /// <param name="context">The source production context to add the generated file to.</param>
+    /// <param name="addSource">Receives the generated file.</param>
+    /// <param name="report">Receives any diagnostic the union's shape warrants.</param>
     /// <param name="info">The resolved union model built by <see cref="BuildUnionInfo"/>.</param>
-    private static void GenerateUnion(SourceProductionContext context, UnionInfo info)
+    private static void GenerateUnionCore(Action<GeneratedSource> addSource,
+                                          Action<Diagnostic> report,
+                                          UnionInfo info)
     {
         if (info.HasMultipleMarkers)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            report(Diagnostic.Create(
                 MultipleUnionMarkersDescriptor,
                 info.Location ?? Location.None,
                 info.TypeName,
@@ -478,14 +541,14 @@ namespace Corsinvest.Fx.Functional
 
         if (info.IsMissingRequiredModifiers)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            report(Diagnostic.Create(
                 RootMustBeAbstractPartialDescriptor, info.Location ?? Location.None, info.TypeName, info.MissingModifiers));
             return;
         }
 
         if (info.HasNameCollision)
         {
-            context.ReportDiagnostic(Diagnostic.Create(
+            report(Diagnostic.Create(
                 CaseNameCollisionDescriptor, info.Location ?? Location.None, info.TypeName));
             return;
         }
@@ -496,7 +559,7 @@ namespace Corsinvest.Fx.Functional
             if (caseType.TypeKind == TypeKind.Interface)
             {
                 hasInterfaceCaseType = true;
-                context.ReportDiagnostic(Diagnostic.Create(
+                report(Diagnostic.Create(
                     InterfaceCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName, caseType.Name));
             }
         }
@@ -507,7 +570,7 @@ namespace Corsinvest.Fx.Functional
         {
             var collidingCaseNames = string.Join(", ", GetCasesSharingAClrType(info));
 
-            context.ReportDiagnostic(Diagnostic.Create(
+            report(Diagnostic.Create(
                 DuplicateCaseTypeDescriptor, info.Location ?? Location.None, info.TypeName, collidingCaseNames));
         }
 
@@ -594,7 +657,7 @@ namespace Corsinvest.Fx.Functional
             arity,
             suffix: "Union.g");
 
-        context.AddSource(hintName, sb.ToString());
+        addSource(new GeneratedSource(hintName, sb.ToString()));
     }
 
     /// <summary>
@@ -728,7 +791,7 @@ namespace Corsinvest.Fx.Functional
     /// </summary>
     /// <remarks>
     /// A generated wrapper (<c>public partial {Keyword} {Name}{TypeParameters} { ... }</c>, see
-    /// <see cref="GenerateUnion"/>) can rely on ordinary C# shadowing when an inner type parameter
+    /// <see cref="GenerateUnionCore"/>) can rely on ordinary C# shadowing when an inner type parameter
     /// reuses an outer one's name - <c>Outer&lt;T&gt; { Pet&lt;T&gt; { ... } }</c> compiles with
     /// only a CS0693 warning, because the nesting itself disambiguates which <c>T</c> a reference
     /// inside <c>Pet</c> means. The extension class has no such nesting to lean on: both type
