@@ -56,15 +56,13 @@
       Visible="false" />
   </ItemGroup>
 
-  <!-- Auto-enable Try() globally when package is referenced -->
-  <ItemGroup Condition="'$(EnableTryGlobalUsings)' == 'true'">
-    <GlobalUsing Include="Corsinvest.Fx.Functional.TryHelper" Static="true" />
-    <GlobalUsing Include="static Corsinvest.Fx.Functional.TryExtensions" />
-  </ItemGroup>
-
-  <!-- Auto-enable Option/Result factory methods globally -->
-  <ItemGroup Condition="'$(EnableFunctionalGlobalUsings)' == 'true'">
-    <GlobalUsing Include="static Corsinvest.Fx.Functional.Option" />
-    <GlobalUsing Include="static Corsinvest.Fx.Functional.ResultOf" />
+  <!--
+    Ship the global usings to consumers. build\$(PackageId).props is imported by every referencing
+    project; the <GlobalUsing> items that used to sit here applied only to this project, so the
+    README's promise that Ok()/Fail() work unqualified never held for anyone but us.
+  -->
+  <ItemGroup>
+    <None Include="build\Corsinvest.Fx.Functional.props" Pack="true" PackagePath="build\" />
+    <None Include="build\Corsinvest.Fx.Functional.props" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 </Project>

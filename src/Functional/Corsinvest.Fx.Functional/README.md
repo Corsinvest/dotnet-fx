@@ -15,6 +15,41 @@ Brings powerful functional programming patterns to C#: type-safe error handling 
 dotnet add package Corsinvest.Fx.Functional
 ```
 
+### Global usings
+
+The package brings its own namespace and factory methods in, so most files need no `using` at all:
+
+```csharp
+// no using directive - IUnion, Ok, Fail, Some and None are already in scope
+public abstract partial record Pet : IUnion<Cat, Dog>;
+
+var user = Ok<User, string>(new User("a@b.c"));
+var maybe = Some(42);
+```
+
+Opt out per group, before the `PackageReference` is evaluated:
+
+```xml
+<PropertyGroup>
+  <EnableFunctionalGlobalUsings>false</EnableFunctionalGlobalUsings>  <!-- namespace, Option, ResultOf -->
+  <EnableTryGlobalUsings>false</EnableTryGlobalUsings>                <!-- the .Try() extensions -->
+</PropertyGroup>
+```
+
+Then import what you need by hand:
+
+```csharp
+using Corsinvest.Fx.Functional;
+using static Corsinvest.Fx.Functional.Option;
+using static Corsinvest.Fx.Functional.ResultOf;
+```
+
+`TryHelper` is deliberately **not** a global static import: its `Try<T>(Func<T>)` has the same
+signature as `ResultOf.Try<T>(Func<T>)`, and importing both would make every unqualified `Try(...)`
+ambiguous (CS0121). `ResultOf.Try` is what an unqualified `Try(...)` resolves to; reach for
+`TryHelper.Try(...)` by name when you want its `Action` overloads, which return
+`ResultOf<`[`Unit`](docs/Unit.md)`, E>`.
+
 ## Quick Examples
 
 ### ResultOf - Type-Safe Error Handling

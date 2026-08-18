@@ -19,9 +19,13 @@
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- Auto-enable defer() globally when package is referenced -->
-  <ItemGroup Condition="'$(EnableDeferGlobalUsings)' == 'true'">
-    <GlobalUsing Include="Corsinvest.Fx.Defer.Defer" Static="true" />
+  <!--
+    Ship the global using to consumers. A <GlobalUsing> item applies only to the project declaring
+    it, so the one that used to sit here never reached anyone referencing the package.
+  -->
+  <ItemGroup>
+    <None Include="build\Corsinvest.Fx.Defer.props" Pack="true" PackagePath="build\" />
+    <None Include="build\Corsinvest.Fx.Defer.props" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
 </Project>
