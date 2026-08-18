@@ -18,8 +18,14 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsNotAsErrors>NU1605</WarningsNotAsErrors>
     <NoWarn>CS1591</NoWarn>
+    <!--
+      GenerateDocumentationFile alone puts the XML next to the assembly under the right name.
+      Spelling DocumentationFile out here instead named it "$(AssemblyName).xml" with an empty
+      AssemblyName - the SDK only defaults that property in Microsoft.NET.Sdk.props, which is
+      imported after this file - so every project wrote a file called ".xml", and pack refused the
+      package outright (NU5119: files starting with '.' are excluded by default).
+    -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <DocumentationFile>bin\$(Configuration)\$(TargetFramework)\$(AssemblyName).xml</DocumentationFile>
     <PublishDocumentationFile>true</PublishDocumentationFile>
   </PropertyGroup>
 

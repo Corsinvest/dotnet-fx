@@ -35,15 +35,22 @@
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- Embed generator and code fixes in package as analyzers -->
+  <!--
+    Embed generator and code fixes in package as analyzers.
+
+    Both live in sibling projects, so the path walks out of this project directory rather than out
+    of $(OutputPath): $(OutputPath) is bin\$(Configuration)\$(TargetFramework)\, so
+    $(OutputPath)\.. lands in this project's own bin\$(Configuration)\ - where a sibling project's
+    output has never been, and pack failed outright looking for it.
+  -->
   <ItemGroup>
     <None
-      Include="$(OutputPath)\..\Corsinvest.Fx.Functional.Generators\netstandard2.0\Corsinvest.Fx.Functional.Generators.dll"
+      Include="..\Corsinvest.Fx.Functional.Generators\bin\$(Configuration)\netstandard2.0\Corsinvest.Fx.Functional.Generators.dll"
       Pack="true"
       PackagePath="analyzers\dotnet\cs"
       Visible="false" />
     <None
-      Include="$(OutputPath)\..\Corsinvest.Fx.Functional.CodeFixes\netstandard2.0\Corsinvest.Fx.Functional.CodeFixes.dll"
+      Include="..\Corsinvest.Fx.Functional.CodeFixes\bin\$(Configuration)\netstandard2.0\Corsinvest.Fx.Functional.CodeFixes.dll"
       Pack="true"
       PackagePath="analyzers\dotnet\cs"
       Visible="false" />

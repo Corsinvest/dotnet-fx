@@ -57,7 +57,12 @@
 
   <!-- Package Content -->
   <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" Condition="Exists('README.md')" />
+    <!--
+      This package's README lives one level up, shared with the rest of the CompileTime projects.
+      The Exists() guard used to skip a README.md that has never been here, which left
+      PackageReadmeFile pointing at a file the package did not contain - NU5039, and no package.
+    -->
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
 
     <!-- Include Generator executables in tools/ folder -->
     <None Include="..\Corsinvest.Fx.CompileTime.Generator\bin\$(Configuration)\net9.0\**\*.*"
