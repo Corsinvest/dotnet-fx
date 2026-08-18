@@ -986,6 +986,171 @@ public class UnionGeneratorTests
         Assert.Empty(diagnostics.Where(d => d.Id == "UNION001"));
     }
 
+    [Fact]
+    public void Generates_StatePassingOverload_ForEveryMatchShape()
+    {
+        var generated = Generate($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        Assert.Contains("public TResult Match<TState, TResult>(", generated);
+        Assert.Contains("public void Match<TState>(", generated);
+        Assert.Contains("public async Task<TResult> MatchAsync<TState, TResult>(", generated);
+        Assert.Contains("public async Task MatchAsync<TState>(", generated);
+    }
+
+    [Fact]
+    public void StatePassingMatch_ForwardsStateToTheHandler()
+    {
+        var diagnostics = CompileWithGenerator($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+
+            public static class Usage
+            {
+                // Every handler is static: nothing is captured, so nothing is allocated.
+                public static int NameLength(Pet pet, int bonus) => pet.Match(
+                    bonus,
+                    static (b, cat) => b + cat.Name.Length,
+                    static (b, dog) => b + dog.Name.Length);
+
+                public static void Report(Pet pet, System.Text.StringBuilder sb) => pet.Match(
+                    sb,
+                    static (b, cat) => b.Append(cat.Name),
+                    static (b, dog) => b.Append(dog.Name));
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void StatePassingMatchAsync_IsAvailableOnTaskOfRoot()
+    {
+        var diagnostics = CompileWithGenerator($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+
+            public static class Usage
+            {
+                public static System.Threading.Tasks.Task<int> NameLengthAsync(
+                    System.Threading.Tasks.Task<Pet> pet, int bonus) => pet.MatchAsync(
+                        bonus,
+                        static (b, cat) => b + cat.Name.Length,
+                        static (b, dog) => b + dog.Name.Length);
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void MatchTypeParameters_AreRenamed_WhenTheRootAlreadyDeclaresThem()
+    {
+        // A method type parameter may not repeat one the enclosing type declares: reusing it
+        // shadows the outer one and makes handler and return type mean different things at the
+        // same spelling. Both Match's TResult and the state-passing overload's TState have to
+        // dodge whatever the root happens to be parameterised on.
+        var diagnostics = CompileWithGenerator($$"""
+            using Corsinvest.Fx.Functional;
+
+            public record Wrap<T>(T Value);
+            public record Other(int Code);
+
+            public abstract partial record Box<TResult> : IUnion<Wrap<TResult>, Other>;
+            public abstract partial record Bag<TState> : IUnion<Wrap<TState>, Other>;
+
+            public static class Usage
+            {
+                public static string Describe(Box<string> box) => box.Match(
+                    wrap => wrap.Value,
+                    other => other.Code.ToString());
+
+                public static int Sum(Bag<int> bag, int seed) => bag.Match(
+                    seed,
+                    static (s, wrap) => s + wrap.Value,
+                    static (s, other) => s + other.Code);
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
+    }
+
+    [Fact]
+    public void TryGet_AnnotatesTheOutParameter_ForAReferenceTypeCase()
+    {
+        var generated = Generate($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        Assert.Contains("public bool TryGetCat([NotNullWhen(true)] out global::Cat? value)", generated);
+    }
+
+    [Fact]
+    public void TryGet_LeavesAValueTypeCaseUnannotated()
+    {
+        // `out int?` would be Nullable<int>, not "int that may be null": annotating a value type
+        // would change the parameter's type and break every existing caller.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public enum Mood { Happy }
+
+            public abstract partial record Pet : IUnion<Cat, Mood>;
+            """);
+
+        Assert.Contains("public bool TryGetMood(out global::Mood value)", generated);
+        Assert.DoesNotContain("out global::Mood? value", generated);
+    }
+
+    [Fact]
+    public void TryGet_LetsNullableAnalysisWarnTheCallerWhoSkipsTheCheck()
+    {
+        var diagnostics = CompileWithNullableEnabled($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+
+            public static class Usage
+            {
+                // Reading `value` without honouring the bool is the mistake the annotation exists
+                // to catch.
+                public static int Unchecked(Pet pet)
+                {
+                    pet.TryGetCat(out var cat);
+                    return cat.Lives;
+                }
+            }
+            """);
+
+        Assert.Contains(diagnostics, d => d.Id == "CS8602");
+    }
+
+    [Fact]
+    public void TryGet_StaysWarningFree_OnTheCheckedPath()
+    {
+        var diagnostics = CompileWithNullableEnabled($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+
+            public static class Usage
+            {
+                public static int Checked(Pet pet)
+                    => pet.TryGetCat(out var cat) ? cat.Lives : 0;
+            }
+            """);
+
+        Assert.DoesNotContain(diagnostics, d => d.Id == "CS8602");
+    }
+
     private static string Generate(string source)
         => string.Join("\n", RunGenerator(source).Select(t => t.ToString()));
 
@@ -1023,6 +1188,34 @@ public class UnionGeneratorTests
             .SelectMany(r => r.GeneratedSources)
             .Select(s => s.SyntaxTree)
             .ToImmutableArray();
+
+    /// <summary>
+    /// Compiles <paramref name="source"/> plus the generator's output with the nullable context
+    /// switched on, so nullable-flow diagnostics (CS8602 and friends) can actually be raised.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CreateCompilation"/> leaves nullable disabled, which is right for the tests that
+    /// only care whether the generated code compiles - but it also means a nullable warning can
+    /// never appear, so a test asserting one would pass no matter what the generator emitted.
+    /// </remarks>
+    /// <param name="source">The user source to compile alongside the generated output.</param>
+    private static ImmutableArray<Diagnostic> CompileWithNullableEnabled(string source)
+    {
+        var compilation = CreateCompilation(source)
+            .WithOptions(new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                nullableContextOptions: NullableContextOptions.Enable));
+
+        var withGenerated = compilation.AddSyntaxTrees(
+            CSharpGeneratorDriver.Create(new UnionGenerator())
+                .RunGenerators(compilation)
+                .GetRunResult()
+                .Results
+                .SelectMany(r => r.GeneratedSources)
+                .Select(s => s.SyntaxTree));
+
+        return withGenerated.GetDiagnostics();
+    }
 
     private static CSharpCompilation CreateCompilation(string source)
         => CSharpCompilation.Create(

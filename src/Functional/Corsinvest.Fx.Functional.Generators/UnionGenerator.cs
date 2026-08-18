@@ -386,6 +386,31 @@ namespace Corsinvest.Fx.Functional
             ? 0
             : typeParameters.Count(c => c == ',') + 1;
 
+    /// <summary>
+    /// Picks a method-level type parameter name that no enclosing type already declares.
+    /// </summary>
+    /// <remarks>
+    /// A method's own type parameter may not repeat a name the enclosing type declares: reusing
+    /// it shadows the outer one (CS0693) and makes the two mean different things at the same
+    /// spelling, so <c>Match&lt;TResult&gt;</c> on a union declared as
+    /// <c>Box&lt;TResult&gt; : IUnion&lt;Wrap&lt;TResult&gt;&gt;</c> stops compiling - the handler's
+    /// parameter and its return type both read <c>TResult</c> while denoting different symbols
+    /// (CS1503). Appending digits until the name is free keeps the common case spelled exactly
+    /// <c>TResult</c>/<c>TState</c> and only disambiguates the union that actually collides.
+    /// </remarks>
+    /// <param name="preferred">The name to use when nothing shadows it.</param>
+    /// <param name="taken">Names already in scope.</param>
+    private static string FreeTypeParameterName(string preferred, IReadOnlyCollection<string> taken)
+    {
+        if (!taken.Contains(preferred)) { return preferred; }
+
+        for (var suffix = 2; ; suffix++)
+        {
+            var candidate = preferred + suffix;
+            if (!taken.Contains(candidate)) { return candidate; }
+        }
+    }
+
     // ---- IUnion<T1..T8> path ------------------------------------------------
 
     /// <summary>
@@ -580,6 +605,7 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine("using System;");
+        sb.AppendLine("using System.Diagnostics.CodeAnalysis;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine();
 
@@ -662,8 +688,16 @@ namespace Corsinvest.Fx.Functional
 
     /// <summary>
     /// Appends the synchronous (value- and void-returning) and asynchronous (value- and
-    /// void-returning) <c>Match</c>/<c>MatchAsync</c> overloads for a generic union.
+    /// void-returning) <c>Match</c>/<c>MatchAsync</c> overloads for a generic union, each in a
+    /// plain form and a state-passing form.
     /// </summary>
+    /// <remarks>
+    /// The state-passing overloads exist to keep a handler from capturing. A lambda that reads
+    /// anything from the enclosing scope compiles to a display class allocated per call, plus one
+    /// delegate object per handler - measured at 152 bytes and roughly double the wall-clock for a
+    /// two-case union. Threading the value through an explicit <c>state</c> parameter lets every
+    /// handler be <c>static</c>, which allocates nothing and lets the runtime cache the delegates.
+    /// </remarks>
     /// <param name="sb">The source builder to append to.</param>
     /// <param name="info">The union model supplying case names.</param>
     /// <param name="qualified">Fully-qualified case type names, aligned with <paramref name="info"/>'s case names.</param>
@@ -673,12 +707,16 @@ namespace Corsinvest.Fx.Functional
                                       ImmutableArray<string> qualified,
                                       string root)
     {
+        var declared = SplitTypeParams(info.TypeParameters);
+        var tResult = FreeTypeParameterName("TResult", declared);
+        var tState = FreeTypeParameterName("TState", [.. declared, tResult]);
+
         // Match with a result
-        sb.AppendLine("    public TResult Match<TResult>(");
+        sb.AppendLine($"    public {tResult} Match<{tResult}>(");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
-            sb.AppendLine($"        Func<{qualified[i]}, TResult> on{info.CaseNames[i]}{comma}");
+            sb.AppendLine($"        Func<{qualified[i]}, {tResult}> on{info.CaseNames[i]}{comma}");
         }
         sb.AppendLine("    )");
         sb.AppendLine("        => this switch");
@@ -686,6 +724,25 @@ namespace Corsinvest.Fx.Functional
         foreach (var name in info.CaseNames)
         {
             sb.AppendLine($"            {name} wrapped => on{name}(wrapped.Value),");
+        }
+        sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
+        sb.AppendLine("        };");
+        sb.AppendLine();
+
+        // Match with a result, state-passing
+        sb.AppendLine($"    public {tResult} Match<{tState}, {tResult}>(");
+        sb.AppendLine($"        {tState} state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{tState}, {qualified[i]}, {tResult}> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("        => this switch");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            {name} wrapped => on{name}(state, wrapped.Value),");
         }
         sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
         sb.AppendLine("        };");
@@ -711,12 +768,33 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // Async match
-        sb.AppendLine("    public async Task<TResult> MatchAsync<TResult>(");
+        // Match without a result, state-passing
+        sb.AppendLine($"    public void Match<{tState}>(");
+        sb.AppendLine($"        {tState} state,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
-            sb.AppendLine($"        Func<{qualified[i]}, Task<TResult>> on{info.CaseNames[i]}{comma}");
+            sb.AppendLine($"        Action<{tState}, {qualified[i]}> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (this)");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            case {name} wrapped: on{name}(state, wrapped.Value); break;");
+        }
+        sb.AppendLine("            default: throw new InvalidOperationException(\"Invalid union state\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // Async match
+        sb.AppendLine($"    public async Task<{tResult}> MatchAsync<{tResult}>(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{qualified[i]}, Task<{tResult}>> on{info.CaseNames[i]}{comma}");
         }
         sb.AppendLine("    )");
         sb.AppendLine("        => this switch");
@@ -724,6 +802,25 @@ namespace Corsinvest.Fx.Functional
         foreach (var name in info.CaseNames)
         {
             sb.AppendLine($"            {name} wrapped => await on{name}(wrapped.Value),");
+        }
+        sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
+        sb.AppendLine("        };");
+        sb.AppendLine();
+
+        // Async match, state-passing
+        sb.AppendLine($"    public async Task<{tResult}> MatchAsync<{tState}, {tResult}>(");
+        sb.AppendLine($"        {tState} state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{tState}, {qualified[i]}, Task<{tResult}>> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("        => this switch");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            {name} wrapped => await on{name}(state, wrapped.Value),");
         }
         sb.AppendLine("            _ => throw new InvalidOperationException(\"Invalid union state\")");
         sb.AppendLine("        };");
@@ -748,6 +845,27 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine();
+
+        // Async match, void-returning, state-passing
+        sb.AppendLine($"    public async Task MatchAsync<{tState}>(");
+        sb.AppendLine($"        {tState} state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{tState}, {qualified[i]}, Task> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (this)");
+        sb.AppendLine("        {");
+        foreach (var name in info.CaseNames)
+        {
+            sb.AppendLine($"            case {name} wrapped: await on{name}(state, wrapped.Value); break;");
+        }
+        sb.AppendLine("            default: throw new InvalidOperationException(\"Invalid union state\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
     }
 
     /// <summary>
@@ -763,10 +881,26 @@ namespace Corsinvest.Fx.Functional
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var name = info.CaseNames[i];
-            sb.AppendLine($"    public bool TryGet{name}(out {qualified[i]} value)");
+
+            // [NotNullWhen(true)] on a nullable out is what makes the nullable analysis track the
+            // result honestly: `value` really is null on the false path, and saying so lets the
+            // compiler warn the caller who reads it without checking, while still leaving the
+            // checked path warning-free. The alternative - a non-nullable out assigned `default!` -
+            // suppresses the warning on both paths, including the one that is genuinely wrong.
+            //
+            // Only a reference-type case gets the `?`: on a value type it would mean Nullable<T>,
+            // so `out int` would silently become `out int?` and every existing caller would stop
+            // compiling. A value type has no null to warn about either, which is why leaving it
+            // alone loses nothing.
+            var nullableOut = info.CaseTypes[i].IsReferenceType;
+            var annotation = nullableOut ? "[NotNullWhen(true)] " : string.Empty;
+            var suffix = nullableOut ? "?" : string.Empty;
+            var fallback = nullableOut ? "default" : "default!";
+
+            sb.AppendLine($"    public bool TryGet{name}({annotation}out {qualified[i]}{suffix} value)");
             sb.AppendLine("    {");
             sb.AppendLine($"        if (this is {name} wrapped) {{ value = wrapped.Value; return true; }}");
-            sb.AppendLine("        value = default!;");
+            sb.AppendLine($"        value = {fallback};");
             sb.AppendLine("        return false;");
             sb.AppendLine("    }");
             sb.AppendLine();
@@ -950,9 +1084,16 @@ namespace Corsinvest.Fx.Functional
         // gets emitted, and the Task<...> reference uses the same renamed T2 in the inner slot.
         var (qualifiedRoot, allTypeParams) = BuildQualifiedRootAndTypeParams(info);
 
-        string TypeParamList(bool withResult)
+        // Both TResult and TState are declared on the very same method as allTypeParams, so they
+        // have to dodge every name in there - not just the root's own parameters.
+        var tResult = FreeTypeParameterName("TResult", allTypeParams);
+        var tState = FreeTypeParameterName("TState", [.. allTypeParams, tResult]);
+
+        string TypeParamList(bool withResult, bool withState = false)
         {
-            var all = withResult ? allTypeParams.Append("TResult") : allTypeParams;
+            var all = allTypeParams.AsEnumerable();
+            if (withState) { all = all.Append(tState); }
+            if (withResult) { all = all.Append(tResult); }
             var list = string.Join(", ", all);
             return list.Length == 0 ? string.Empty : $"<{list}>";
         }
@@ -963,12 +1104,12 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("{");
 
         // 1) Async handlers returning Task<TResult>
-        sb.AppendLine($"    public static async Task<TResult> MatchAsync{TypeParamList(withResult: true)}(");
+        sb.AppendLine($"    public static async Task<{tResult}> MatchAsync{TypeParamList(withResult: true)}(");
         sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
-            sb.AppendLine($"        Func<{qualified[i]}, Task<TResult>> on{info.CaseNames[i]}{comma}");
+            sb.AppendLine($"        Func<{qualified[i]}, Task<{tResult}>> on{info.CaseNames[i]}{comma}");
         }
         sb.AppendLine("    )");
         sb.AppendLine("    {");
@@ -1005,17 +1146,89 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine();
 
         // 3) Sync handlers returning TResult
-        sb.AppendLine($"    public static async Task<TResult> MatchAsync{TypeParamList(withResult: true)}(");
+        sb.AppendLine($"    public static async Task<{tResult}> MatchAsync{TypeParamList(withResult: true)}(");
         sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
-            sb.AppendLine($"        Func<{qualified[i]}, TResult> on{info.CaseNames[i]}{comma}");
+            sb.AppendLine($"        Func<{qualified[i]}, {tResult}> on{info.CaseNames[i]}{comma}");
         }
         sb.AppendLine("    )");
         sb.AppendLine("    {");
         sb.AppendLine("        var result = await task;");
         sb.AppendLine("        return result.Match(");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"            on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("        );");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // Each of the three shapes above also comes in a state-passing form, for the same reason
+        // the instance members do - see GenerateMatch's remarks.
+
+        // 4) Async handlers returning Task<TResult>, state-passing
+        sb.AppendLine($"    public static async Task<{tResult}> MatchAsync{TypeParamList(withResult: true, withState: true)}(");
+        sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
+        sb.AppendLine($"        {tState} state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{tState}, {qualified[i]}, Task<{tResult}>> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var result = await task;");
+        sb.AppendLine("        return await result.MatchAsync(");
+        sb.AppendLine("            state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"            on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("        );");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 5) Async handlers returning Task (void), state-passing
+        sb.AppendLine($"    public static async Task MatchAsync{TypeParamList(withResult: false, withState: true)}(");
+        sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
+        sb.AppendLine($"        {tState} state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{tState}, {qualified[i]}, Task> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var result = await task;");
+        sb.AppendLine("        await result.MatchAsync(");
+        sb.AppendLine("            state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"            on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("        );");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 6) Sync handlers returning TResult, state-passing
+        sb.AppendLine($"    public static async Task<{tResult}> MatchAsync{TypeParamList(withResult: true, withState: true)}(");
+        sb.AppendLine($"        this Task<{qualifiedRoot}> task,");
+        sb.AppendLine($"        {tState} state,");
+        for (var i = 0; i < info.CaseNames.Length; i++)
+        {
+            var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
+            sb.AppendLine($"        Func<{tState}, {qualified[i]}, {tResult}> on{info.CaseNames[i]}{comma}");
+        }
+        sb.AppendLine("    )");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var result = await task;");
+        sb.AppendLine("        return result.Match(");
+        sb.AppendLine("            state,");
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var comma = i < info.CaseNames.Length - 1 ? "," : string.Empty;
