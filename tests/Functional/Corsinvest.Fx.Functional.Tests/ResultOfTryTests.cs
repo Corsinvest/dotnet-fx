@@ -257,4 +257,72 @@ public class ResultOfTryTests
         FormatError,
         Overflow
     }
+
+    // ============================================
+    // Try(Action) - the Unit overloads
+    // ============================================
+
+    [Fact]
+    public void Try_Action_WhenItReturns_IsOk()
+    {
+        var ran = false;
+
+        var result = ResultOf.Try(() => { ran = true; });
+
+        Assert.True(ran);
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public void Try_Action_WhenItThrows_IsFailWithTheException()
+    {
+        var result = ResultOf.Try(() => throw new InvalidOperationException("boom"));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("boom", result.Match(_ => string.Empty, fail => fail.ErrorValue.Message));
+    }
+
+    [Fact]
+    public void Try_Action_WithErrorMapper_MapsTheException()
+    {
+        var result = ResultOf.Try(
+            () => throw new InvalidOperationException("boom"),
+            ex => $"caught: {ex.Message}");
+
+        Assert.Equal("caught: boom", result.Match(_ => string.Empty, fail => fail.ErrorValue));
+    }
+
+    [Fact]
+    public async Task TryAsync_Action_WhenItCompletes_IsOk()
+    {
+        var ran = false;
+
+        var result = await ResultOf.TryAsync(async () => { await Task.Yield(); ran = true; });
+
+        Assert.True(ran);
+        Assert.True(result.IsSuccess);
+    }
+
+    [Fact]
+    public async Task TryAsync_Action_WhenItThrows_IsFailWithTheException()
+    {
+        var result = await ResultOf.TryAsync(async () =>
+        {
+            await Task.Yield();
+            throw new InvalidOperationException("boom");
+        });
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("boom", result.Match(_ => string.Empty, fail => fail.ErrorValue.Message));
+    }
+
+    [Fact]
+    public async Task TryAsync_Action_WithErrorMapper_MapsTheException()
+    {
+        var result = await ResultOf.TryAsync(
+            async () => { await Task.Yield(); throw new InvalidOperationException("boom"); },
+            ex => $"caught: {ex.Message}");
+
+        Assert.Equal("caught: boom", result.Match(_ => string.Empty, fail => fail.ErrorValue));
+    }
 }

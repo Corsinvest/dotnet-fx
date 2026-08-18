@@ -401,7 +401,7 @@ var asyncMapped = await TryAsync(
 );
 ```
 
-**Design Philosophy**: `TryHelper` provides standalone static methods for functional-style programming, similar to F#/Haskell. This gives you:
+**Design Philosophy**: `ResultOf` provides standalone static methods for functional-style programming, similar to F#/Haskell. This gives you:
 - ✅ **Zero boilerplate** - No `using static` needed with global usings
 - ✅ **Consistency** - Same pattern as `Ok()`, `Fail()`, `Some()`, `None()`
 - ✅ **Clean syntax** - Looks like a built-in language feature

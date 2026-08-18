@@ -69,6 +69,13 @@ its *own* `[Union]` types.
 - **`[UnionCaseName<T>("...")]`** to pin a wrapper's name when the generated one would collide or
   when a 1.x nested name has to stay stable.
 
+- **`TryHelper` is gone; `ResultOf.Try` is the one standalone entry point.** The two classes had
+  four methods with identical signatures and identical bodies, which is what forced `TryHelper` out
+  of the global static imports - importing both made every unqualified `Try(...)` ambiguous
+  (CS0121). `ResultOf.Try` now also carries the `Action` overloads returning `ResultOf<Unit, E>`,
+  which only `TryHelper` had. The `.Try()` extensions are untouched: they take a value from the
+  pipeline, which the standalone form has no way to express.
+
 - **`PipeEither` overloads taking a predicate**, sync and async. Only the `bool` form existed for a
   value, so a branch could not read the value it was piped - which is exactly what a mid-chain
   branch needs. `PipeIf` already had both forms.

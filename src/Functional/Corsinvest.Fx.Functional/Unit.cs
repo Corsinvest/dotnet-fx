@@ -26,7 +26,7 @@ namespace Corsinvest.Fx.Functional;
 /// </remarks>
 /// <example>
 /// <code>
-/// ResultOf&lt;Unit, Exception&gt; saved = TryHelper.Try(() =&gt; File.WriteAllText(path, content));
+/// ResultOf&lt;Unit, Exception&gt; saved = ResultOf.Try(() =&gt; File.WriteAllText(path, content));
 ///
 /// static ResultOf&lt;Unit, OrderError&gt; CheckInventory(Product product, int quantity)
 ///     =&gt; product.Stock &lt; quantity

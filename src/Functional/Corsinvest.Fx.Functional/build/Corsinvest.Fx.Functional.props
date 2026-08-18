@@ -26,15 +26,7 @@
     <Using Include="Corsinvest.Fx.Functional.ResultOf" Static="true" />
   </ItemGroup>
 
-  <!--
-    Try()/TryAsync(), unqualified.
-
-    Only TryExtensions is imported statically. TryHelper.Try<T>(Func<T>) and
-    ResultOf.Try<T>(Func<T>) have identical signatures, so importing both statically makes every
-    unqualified Try() call ambiguous (CS0121) - and ResultOf has to be imported for Ok()/Fail().
-    ResultOf.Try is the one that wins here; TryHelper stays reachable as TryHelper.Try(...), which
-    is the only way to get its Action overloads returning ResultOf<Unit, E>.
-  -->
+  <!-- The .Try() extensions, unqualified. ResultOf.Try comes in with ResultOf above. -->
   <ItemGroup Condition="'$(EnableTryGlobalUsings)' == 'true' AND '$(ImplicitUsings)' == 'enable'">
     <Using Include="Corsinvest.Fx.Functional.TryExtensions" Static="true" />
   </ItemGroup>
