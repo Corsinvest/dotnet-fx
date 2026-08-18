@@ -67,6 +67,15 @@ double CalculateArea(Shape shape) => shape switch
 };
 ```
 
+Two analyzers make that work, and they install with the package - no extra reference, no setup:
+
+| | |
+| --- | --- |
+| **UNION004** | Names every case a `switch` misses, with a **code fix** that adds them (<kbd>Ctrl</kbd>+<kbd>.</kbd> → *"Add missing union cases"*, Fix All supported) |
+| **UNION005/006/007** | Suppress `CS8509`, `IDE0010` and `IDE0072`, so nothing nags you toward the `_` arm that would hide the next case you add |
+
+Both work on `switch` **statements** too, which the compiler never checks for exhaustiveness.
+
 The same works for `Option<T>` and `ResultOf<T, E>`, which are unions themselves.
 
 Because the case types are ordinary declarations, the same type can take part in more than one
@@ -148,6 +157,36 @@ public abstract partial record Shape : IUnion<Circle>; // ✅ Correct
 
 public abstract record Shape2 : IUnion<Circle>; // ❌ Incorrect - missing 'partial'
 ```
+
+### No UNION004 warning on a switch that is missing a case
+
+**Cause:** The analyzer ships inside the package and is on by default, so the usual reason it stays
+quiet is that the rule was turned off, the IDE is holding a stale copy, or the switch is not
+actually missing a case.
+
+**Solutions:**
+
+1.  **Check `.editorconfig`** has not silenced it - this is the one setting that reliably makes it
+    disappear:
+
+```ini
+dotnet_diagnostic.UNION004.severity = none      # silences it entirely
+dotnet_diagnostic.UNION004.severity = warning   # the default
+```
+
+2.  **Confirm from the command line**, which bypasses any IDE caching:
+
+```bash
+dotnet build /warnaserror:UNION004
+```
+
+3.  **Restart the IDE.** Visual Studio and Rider both cache analyzer assemblies, so a freshly
+    restored package sometimes needs one restart before its rules load.
+
+4.  **Check the pattern really covers the case.** A guarded arm (`when`) or one matching a subset
+    (`Shape.Circle { Value.Radius: 5 }`) does not count as handling that case - and conversely, a
+    discard arm (`_ =>`) handles *everything*, so it silences UNION004 by design. See
+    [what counts as handling a case](docs/Union.md#what-counts-as-handling-a-case).
 
 ### Warning: CS8602 "Dereference of a possibly null reference" on Option<T>.Value
 

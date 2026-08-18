@@ -208,6 +208,12 @@ decimal CalculateFee(PaymentMethod payment) => payment switch
 };
 ```
 
+The analyzers that enforce that install with the package: **UNION004** names each missing case and
+offers a code fix that writes the arms for you, while **UNION005/006/007** stand down `CS8509` and
+the IDE's "add a default case" suggestions, which would otherwise push you toward the discard arm
+that hides the next case you add. It works on `switch` statements too, which the compiler never
+checks at all.
+
 Because the case types are ordinary declarations, the same type can take part in more than one
 union, and a case can close over the union root's own type parameter - the shape `Option<T>` and
 `ResultOf<T, E>` are built from, and the reason this package uses an interface rather than an
