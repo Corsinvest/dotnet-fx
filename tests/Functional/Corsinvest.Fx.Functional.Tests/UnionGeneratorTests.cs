@@ -26,8 +26,9 @@ public class UnionGeneratorTests
             public abstract partial record Pet : IUnion<Cat, Dog>;
             """);
 
-        Assert.Contains("public sealed partial record Cat(global::Cat Value) : Pet;", generated);
-        Assert.Contains("public sealed partial record Dog(global::Dog Value) : Pet;", generated);
+        // The wrapper carries a ToString override, so it opens a body rather than ending in `;`.
+        Assert.Contains("public sealed partial record Cat(global::Cat Value) : Pet", generated);
+        Assert.Contains("public sealed partial record Dog(global::Dog Value) : Pet", generated);
     }
 
     [Fact]
@@ -984,6 +985,55 @@ public class UnionGeneratorTests
             """);
 
         Assert.Empty(diagnostics.Where(d => d.Id == "UNION001"));
+    }
+
+    [Fact]
+    public void Wrapper_PrintsItsValue_NotItself()
+    {
+        var generated = Generate($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+            """);
+
+        Assert.Contains("public override string ToString() => Value?.ToString() ?? \"Cat\";", generated);
+    }
+
+    [Fact]
+    public void Wrapper_ToString_GuardsAValueTypeWithoutTheNullConditional()
+    {
+        // `?.` on a value type is CS0023, but object.ToString() is declared nullable even there,
+        // so the fallback still has to be present - just reached differently.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Cat(string Name);
+            public enum Mood { Happy }
+
+            public abstract partial record Pet : IUnion<Cat, Mood>;
+            """);
+
+        Assert.Contains("public override string ToString() => Value.ToString() ?? \"Mood\";", generated);
+        Assert.DoesNotContain("Value?.ToString() ?? \"Mood\"", generated);
+    }
+
+    [Fact]
+    public void Wrapper_ToString_LeavesEqualityAndWithIntact()
+    {
+        var diagnostics = CompileWithGenerator($$"""
+            {{Cases}}
+
+            public abstract partial record Pet : IUnion<Cat, Dog>;
+
+            public static class Usage
+            {
+                public static bool SameCat(Pet a, Pet b) => a == b;
+                public static int Hash(Pet pet) => pet.GetHashCode();
+                public static Pet Rename(Pet.Cat cat, string name) => cat with { Value = cat.Value with { Name = name } };
+            }
+            """);
+
+        Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
     }
 
     [Fact]

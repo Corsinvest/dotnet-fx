@@ -74,6 +74,16 @@ The `Match()` method is **exhaustive** - you must handle all cases, or it won't 
 handler receives the **case type itself** (`Circle`, not the generated `Shape.Circle` wrapper),
 since the wrapper's only job is to make the hierarchy closed.
 
+That holds for printing too: a wrapper's `ToString` prints its **value**, so a union reads the way
+the case does.
+
+```csharp
+Shape shape = new Circle(5.0);
+Console.WriteLine(shape);       // Circle { Radius = 5 }, not Circle { Value = Circle { Radius = 5 } }
+```
+
+The case name is used only when the value is null, so a case never prints as an empty string.
+
 ### Matching without capturing
 
 A handler that reads anything from the surrounding scope is a *capturing* lambda, and the compiler
@@ -1043,8 +1053,15 @@ public record Rectangle(double Width, double Height);
 public abstract partial record Shape : IUnion<Circle, Rectangle>;
 
 // Generates (inside Shape):
-public sealed partial record Circle(global::Circle Value) : Shape;
-public sealed partial record Rectangle(global::Rectangle Value) : Shape;
+public sealed partial record Circle(global::Circle Value) : Shape
+{
+    public override string ToString() => Value?.ToString() ?? "Circle";
+}
+
+public sealed partial record Rectangle(global::Rectangle Value) : Shape
+{
+    public override string ToString() => Value?.ToString() ?? "Rectangle";
+}
 
 public static implicit operator Shape(global::Circle value) => new Circle(value);
 public static implicit operator Shape(global::Rectangle value) => new Rectangle(value);
@@ -1053,7 +1070,7 @@ public bool IsCircle => this is Circle;
 public bool IsRectangle => this is Rectangle;
 
 public bool TryGetCircle([NotNullWhen(true)] out global::Circle? value) { /* ... */ }
-public bool TryGetRectangle(out global::Rectangle value) { /* ... */ }
+public bool TryGetRectangle([NotNullWhen(true)] out global::Rectangle? value) { /* ... */ }
 
 public TResult Match<TResult>(
     Func<global::Circle, TResult> onCircle,
