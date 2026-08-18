@@ -107,6 +107,7 @@ var user = await userId
 - **[Union Types](docs/Union.md)** - Custom discriminated unions with source generators
 - **[Pipe Extensions](docs/Pipe.md)** - Universal pipeline pattern for any type
 - **[Option<T>](docs/Option.md)** - Optional values
+- **[Unit](docs/Unit.md)** - The stand-in for `void` where a type is required
 
 ## 🔧 Troubleshooting
 
