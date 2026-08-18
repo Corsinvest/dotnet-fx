@@ -634,14 +634,10 @@ namespace Corsinvest.Fx.Functional
             .Select(t => t.ToDisplayString(FullyQualifiedNoKeywordsFormat))
             .ToImmutableArray();
 
-        // Wrappers.
-        //
-        // Each one overrides ToString to print its value rather than itself. A record's compiler-
-        // generated ToString would print the wrapper too - `NetworkError { Value = Timeout }` -
-        // which leaks a name that exists only to close the hierarchy, and which no other generated
-        // member exposes (Match, Is* and TryGet* all speak in case types). Delegating also drops a
-        // whole StringBuilder pass: measured at 456 B and 503 ms per 5M calls before, 160 B and
-        // 240 ms after.
+        // Wrappers. Each one overrides ToString to print its value rather than itself: a record's
+        // compiler-generated ToString would print the wrapper too - `NetworkError { Value = Timeout }`
+        // - leaking a name that exists only to close the hierarchy and that no other generated
+        // member exposes, since Match, Is* and TryGet* all speak in case types.
         for (var i = 0; i < info.CaseNames.Length; i++)
         {
             var name = info.CaseNames[i];
@@ -749,7 +745,6 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("        };");
         sb.AppendLine();
 
-        // Match with a result, state-passing
         sb.AppendLine($"    public {tResult} Match<{tState}, {tResult}>(");
         sb.AppendLine($"        {tState} state,");
         for (var i = 0; i < info.CaseNames.Length; i++)
@@ -788,7 +783,6 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // Match without a result, state-passing
         sb.AppendLine($"    public void Match<{tState}>(");
         sb.AppendLine($"        {tState} state,");
         for (var i = 0; i < info.CaseNames.Length; i++)
@@ -827,7 +821,6 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("        };");
         sb.AppendLine();
 
-        // Async match, state-passing
         sb.AppendLine($"    public async Task<{tResult}> MatchAsync<{tState}, {tResult}>(");
         sb.AppendLine($"        {tState} state,");
         for (var i = 0; i < info.CaseNames.Length; i++)
@@ -866,7 +859,6 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // Async match, void-returning, state-passing
         sb.AppendLine($"    public async Task MatchAsync<{tState}>(");
         sb.AppendLine($"        {tState} state,");
         for (var i = 0; i < info.CaseNames.Length; i++)
