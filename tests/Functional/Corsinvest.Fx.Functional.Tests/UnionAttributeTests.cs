@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using System.Reflection;
 
 namespace Corsinvest.Fx.Functional.Tests;

@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using Corsinvest.Fx.Unsafe.Asm;
 using System.Runtime.InteropServices;
 

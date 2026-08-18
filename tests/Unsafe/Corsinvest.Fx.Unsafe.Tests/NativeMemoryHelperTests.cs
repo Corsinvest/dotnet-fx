@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using Corsinvest.Fx.Unsafe.Asm;
 
 namespace Corsinvest.Fx.Unsafe.Tests;

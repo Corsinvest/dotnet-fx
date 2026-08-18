@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 using static Corsinvest.Fx.Defer.Defer;
 
 namespace Corsinvest.Fx.Defer.Tests;

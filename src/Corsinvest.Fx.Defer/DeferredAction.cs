@@ -1,3 +1,8 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
 namespace Corsinvest.Fx.Defer;
 
 internal sealed class DeferredAction(Action action) : IDisposable

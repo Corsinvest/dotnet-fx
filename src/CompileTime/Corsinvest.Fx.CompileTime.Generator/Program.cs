@@ -1,4 +1,9 @@
-﻿using System.Text.Json;
+﻿/*
+ * SPDX-FileCopyrightText: Copyright Corsinvest Srl
+ * SPDX-License-Identifier: MIT
+ */
+
+using System.Text.Json;
 using Corsinvest.Fx.CompileTime.Diagnostics;
 using Corsinvest.Fx.CompileTime.Models;
 
