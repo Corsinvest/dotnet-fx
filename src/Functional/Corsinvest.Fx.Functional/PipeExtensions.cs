@@ -472,6 +472,31 @@ public static class PipeExtensions
         => condition ? ifTrue(value) : ifFalse(value);
 
     /// <summary>
+    /// Pipes a value through one of two transformations based on a predicate evaluated against
+    /// the value itself.
+    /// </summary>
+    /// <remarks>
+    /// The predicate form is what lets a branch appear mid-chain, where the value has no name to
+    /// write a <c>bool</c> against.
+    /// </remarks>
+    /// <typeparam name="TIn">The input type</typeparam>
+    /// <typeparam name="TOut">The output type</typeparam>
+    /// <param name="value">The value to transform</param>
+    /// <param name="predicate">The predicate to evaluate against the value</param>
+    /// <param name="ifTrue">The transformation to apply if the predicate holds</param>
+    /// <param name="ifFalse">The transformation to apply if it does not</param>
+    /// <returns>The result of applying either ifTrue or ifFalse transformation</returns>
+    /// <example>
+    /// <code>
+    /// var label = LoadUser(id)
+    ///     .Pipe(Normalize)
+    ///     .PipeEither(u => u.Age >= 18, u => "adult", u => "minor");
+    /// </code>
+    /// </example>
+    public static TOut PipeEither<TIn, TOut>(this TIn value, Func<TIn, bool> predicate, Func<TIn, TOut> ifTrue, Func<TIn, TOut> ifFalse)
+        => predicate(value) ? ifTrue(value) : ifFalse(value);
+
+    /// <summary>
     /// Pipes a value through one of two async transformations based on a condition.
     /// </summary>
     /// <typeparam name="TIn">The input type</typeparam>
@@ -489,6 +514,26 @@ public static class PipeExtensions
     /// </example>
     public static async Task<TOut> PipeEitherAsync<TIn, TOut>(this TIn value, bool condition, Func<TIn, Task<TOut>> ifTrue, Func<TIn, Task<TOut>> ifFalse)
         => condition ? await ifTrue(value) : await ifFalse(value);
+
+    /// <summary>
+    /// Pipes a value through one of two async transformations based on a predicate evaluated
+    /// against the value itself.
+    /// </summary>
+    /// <typeparam name="TIn">The input type</typeparam>
+    /// <typeparam name="TOut">The output type</typeparam>
+    /// <param name="value">The value to transform</param>
+    /// <param name="predicate">The predicate to evaluate against the value</param>
+    /// <param name="ifTrue">The async transformation to apply if the predicate holds</param>
+    /// <param name="ifFalse">The async transformation to apply if it does not</param>
+    /// <returns>A task containing the result of applying either ifTrue or ifFalse transformation</returns>
+    /// <example>
+    /// <code>
+    /// var report = await LoadOrder(id)
+    ///     .PipeEitherAsync(o => o.Lines.Count == 0, EmptyReportAsync, FullReportAsync);
+    /// </code>
+    /// </example>
+    public static async Task<TOut> PipeEitherAsync<TIn, TOut>(this TIn value, Func<TIn, bool> predicate, Func<TIn, Task<TOut>> ifTrue, Func<TIn, Task<TOut>> ifFalse)
+        => predicate(value) ? await ifTrue(value) : await ifFalse(value);
 
     /// <summary>
     /// Pipes a task value through one of two async transformations based on a condition.

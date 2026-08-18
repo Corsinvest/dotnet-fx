@@ -398,6 +398,70 @@ public class PipeExtensionsTests
     }
 
     [Fact]
+    public void PipeEither_PredicateHolds_AppliesFirstTransformation()
+    {
+        var result = 10.PipeEither(x => x > 5, x => x * 2, x => x * 3);
+
+        Assert.Equal(20, result);
+    }
+
+    [Fact]
+    public void PipeEither_PredicateFails_AppliesSecondTransformation()
+    {
+        var result = 10.PipeEither(x => x > 50, x => x * 2, x => x * 3);
+
+        Assert.Equal(30, result);
+    }
+
+    [Fact]
+    public void PipeEither_Predicate_SeesTheValueMidChain()
+    {
+        // The point of the predicate form: the branch reads the piped value, which has no name
+        // to write a bool against.
+        var result = 4
+            .Pipe(x => x * 3)
+            .PipeEither(x => x > 10, x => "big", x => "small");
+
+        Assert.Equal("big", result);
+    }
+
+    [Fact]
+    public void PipeEither_Predicate_RunsOnlyTheChosenBranch()
+    {
+        var taken = 0;
+
+        var result = 10.PipeEither(
+            x => x > 5,
+            x => { taken++; return x; },
+            x => { taken += 100; return x; });
+
+        Assert.Equal(10, result);
+        Assert.Equal(1, taken);
+    }
+
+    [Fact]
+    public async Task PipeEitherAsync_PredicateHolds_AppliesFirstTransformation()
+    {
+        var result = await 10.PipeEitherAsync(
+            x => x > 5,
+            x => Task.FromResult(x * 2),
+            x => Task.FromResult(x * 3));
+
+        Assert.Equal(20, result);
+    }
+
+    [Fact]
+    public async Task PipeEitherAsync_PredicateFails_AppliesSecondTransformation()
+    {
+        var result = await 10.PipeEitherAsync(
+            x => x > 50,
+            x => Task.FromResult(x * 2),
+            x => Task.FromResult(x * 3));
+
+        Assert.Equal(30, result);
+    }
+
+    [Fact]
     public void PipeEither_WhenFalse_AppliesSecondTransformation()
     {
         var result = 10.PipeEither(false, x => x * 2, x => x * 3);
