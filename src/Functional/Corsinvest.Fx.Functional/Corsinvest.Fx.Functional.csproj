@@ -62,7 +62,7 @@
     README's promise that Ok()/Fail() work unqualified never held for anyone but us.
   -->
   <ItemGroup>
-    <None Include="build\Corsinvest.Fx.Functional.props" Pack="true" PackagePath="build\" />
-    <None Include="build\Corsinvest.Fx.Functional.props" Pack="true" PackagePath="buildTransitive\" />
+    <!-- build\ covers a direct reference, buildTransitive\ a transitive one. -->
+    <None Include="build\Corsinvest.Fx.Functional.props" Pack="true" PackagePath="build\;buildTransitive\" />
   </ItemGroup>
 </Project>

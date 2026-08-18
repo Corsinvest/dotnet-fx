@@ -17,16 +17,11 @@
   </PropertyGroup>
 
   <!--
-    The namespace itself, so IUnion<...> can be written in a base list without a using. It is the
-    entry point to the union feature, and until now it was the one piece the package did not bring
-    in for you - unlike Ok/Some/Try, which arrive as static imports below.
+    The namespace itself, so IUnion<...> can be written in a base list without a using - it is the
+    entry point to the union feature - plus Option.Some/None and ResultOf.Ok/Fail unqualified.
   -->
   <ItemGroup Condition="'$(EnableFunctionalGlobalUsings)' == 'true' AND '$(ImplicitUsings)' == 'enable'">
     <Using Include="Corsinvest.Fx.Functional" />
-  </ItemGroup>
-
-  <!-- Option.Some/None and ResultOf.Ok/Fail, unqualified. -->
-  <ItemGroup Condition="'$(EnableFunctionalGlobalUsings)' == 'true' AND '$(ImplicitUsings)' == 'enable'">
     <Using Include="Corsinvest.Fx.Functional.Option" Static="true" />
     <Using Include="Corsinvest.Fx.Functional.ResultOf" Static="true" />
   </ItemGroup>

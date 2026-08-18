@@ -24,8 +24,8 @@
     it, so the one that used to sit here never reached anyone referencing the package.
   -->
   <ItemGroup>
-    <None Include="build\Corsinvest.Fx.Defer.props" Pack="true" PackagePath="build\" />
-    <None Include="build\Corsinvest.Fx.Defer.props" Pack="true" PackagePath="buildTransitive\" />
+    <!-- build\ covers a direct reference, buildTransitive\ a transitive one. -->
+    <None Include="build\Corsinvest.Fx.Defer.props" Pack="true" PackagePath="build\;buildTransitive\" />
   </ItemGroup>
 
 </Project>
