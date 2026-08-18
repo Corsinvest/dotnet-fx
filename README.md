@@ -296,6 +296,9 @@ Each package has its own detailed README:
 - [Unsafe - Inline Assembly](src/Unsafe/Corsinvest.Fx.Unsafe/README.md) *(experimental)*
 - [CompileTime - Compile-Time Computation](src/CompileTime/README.md) *(experimental)*
 
+Upgrading? The [CHANGELOG](CHANGELOG.md) lists what changed, and 2.0.0's union rewrite has a
+[migration guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#migrating-from-1x).
+
 ---
 
 ## 🤝 Contributing
