@@ -69,6 +69,10 @@ its *own* `[Union]` types.
 - **`[UnionCaseName<T>("...")]`** to pin a wrapper's name when the generated one would collide or
   when a 1.x nested name has to stay stable.
 
+- **`PipeEither` overloads taking a predicate**, sync and async. Only the `bool` form existed for a
+  value, so a branch could not read the value it was piped - which is exactly what a mid-chain
+  branch needs. `PipeIf` already had both forms.
+
 ### Fixed
 
 - `TryGet{Case}` assigned `default!` to a non-nullable `out`, telling the compiler "never null" on

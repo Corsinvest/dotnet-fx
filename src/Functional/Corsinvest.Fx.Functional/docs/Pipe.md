@@ -135,6 +135,17 @@ var message = user
         guest => $"Hello, {guest.Name}");
 ```
 
+The condition can be a predicate on the value instead, which is what lets a branch sit mid-chain
+where the value has no name to write a `bool` against:
+
+```csharp
+var label = LoadUser(id)
+    .Pipe(Normalize)
+    .PipeEither(u => u.Age >= 18, u => "adult", u => "minor");
+```
+
+Only the chosen branch runs.
+
 ---
 
 ## Async
@@ -186,12 +197,12 @@ each is also available as an extension on `Task<T>`.
 | `PipeIf` | `T.PipeIf(bool, Func<T, T>)` | transformed if true, else unchanged |
 | `PipeIf` | `T.PipeIf(Func<T, bool>, Func<T, T>)` | same, with a predicate on the value |
 | `PipeEither` | `T.PipeEither(bool, Func<T, TOut>, Func<T, TOut>)` | one branch's result |
+| `PipeEither` | `T.PipeEither(Func<T, bool>, Func<T, TOut>, Func<T, TOut>)` | same, with a predicate on the value |
 
 Async-only overloads worth knowing:
 
 | Method | Notes |
 |--------|-------|
-| `PipeEitherAsync(Func<T, bool>, …)` | predicate form, on `Task<T>` |
 | `PipeIfAsync(Func<T, bool>, …)` | predicate form, sync and `Task<T>` |
 | `TapIfAsync(bool, Func<T, Task>)` | sync and `Task<T>` |
 
