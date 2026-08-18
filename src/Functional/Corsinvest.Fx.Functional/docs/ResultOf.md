@@ -37,6 +37,19 @@ result.Match(
 );
 ```
 
+`ResultOf<T, E>` is a union, so it also has the state-passing `Match` overloads - handy when a
+handler would otherwise capture, since a capturing lambda allocates a closure per call:
+
+```csharp
+string Describe(ResultOf<User, string> result, string requestId) => result.Match(
+    requestId,
+    static (id, ok) => $"{id}: created {ok.Value.Name}",
+    static (id, error) => $"{id}: failed - {error.ErrorValue}"
+);
+```
+
+See [Union Types](./Union.md#matching-without-capturing) for the measured difference.
+
 ### Switch Expressions
 
 `ResultOf<T, E>` is declared as `ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>`, so `Ok` and `Fail` are

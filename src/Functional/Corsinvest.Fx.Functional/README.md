@@ -88,13 +88,13 @@ PaymentMethod method = new CreditCard("4111-1111-1111-1111"); // implicit conver
 
 ```csharp
 var result = 5.0
-    .Pipe(Power, 2)           // 25
+    .Pipe(Power, 2.0)         // 25
     .Pipe(x => x + 10)        // 35
-    .Pipe(Clamp, 0, 30);      // 30
+    .Pipe(Clamp, 0.0, 30.0);  // 30
 
 var user = await userId
     .PipeAsync(FetchUserAsync)
-    .PipeTapAsync(u => LogAsync($"User: {u.Name}"))
+    .TapAsync(u => LogAsync($"User: {u.Name}"))
     .PipeAsync(SaveToCacheAsync);
 ```
 

@@ -77,6 +77,19 @@ value.Match(
 );
 ```
 
+`Option<T>` is a union, so it also has the state-passing `Match` overloads - handy when a handler
+would otherwise capture, since a capturing lambda allocates a closure per call:
+
+```csharp
+string Describe(Option<int> value, string prefix) => value.Match(
+    prefix,
+    static (p, some) => $"{p}: {some.Value}",
+    static (p, none) => $"{p}: none"
+);
+```
+
+See [Union Types](./Union.md#matching-without-capturing) for the measured difference.
+
 ### Switch Expressions
 
 `Option<T>` is declared as `Option<T> : IUnion<Some<T>, None>`, so `Some` and `None` are real

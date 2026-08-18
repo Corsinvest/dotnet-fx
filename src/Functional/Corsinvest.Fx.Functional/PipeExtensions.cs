@@ -12,9 +12,9 @@ namespace Corsinvest.Fx.Functional;
 /// Example:
 /// <code>
 /// var result = 5.0
-///     .Pipe(Power, 2)           // 5^2 = 25
+///     .Pipe(Power, 2.0)         // 5^2 = 25
 ///     .Pipe(x => x + 10)        // 25 + 10 = 35
-///     .Pipe(Clamp, 0, 30);      // Clamp(35, 0, 30) = 30
+///     .Pipe(Clamp, 0.0, 30.0);  // Clamp(35, 0, 30) = 30
 ///
 /// // Instead of: Clamp(Power(5.0, 2) + 10, 0, 30)
 /// </code>
@@ -61,7 +61,7 @@ public static class PipeExtensions
     /// static double Power(double x, int exp) => Math.Pow(x, exp);
     ///
     /// var result = 5.0
-    ///     .Pipe(Power, 2);  // Power(5.0, 2) = 25.0
+    ///     .Pipe(Power, 2.0);  // Power(5.0, 2.0) = 25.0
     /// </code>
     /// </example>
     public static TOut Pipe<TIn, T2, TOut>(this TIn value, Func<TIn, T2, TOut> func, T2 arg2)
@@ -85,7 +85,7 @@ public static class PipeExtensions
     ///     => Math.Max(min, Math.Min(max, value));
     ///
     /// var result = 35.0
-    ///     .Pipe(Clamp, 0, 30);  // Clamp(35.0, 0, 30) = 30.0
+    ///     .Pipe(Clamp, 0.0, 30.0);  // Clamp(35.0, 0.0, 30.0) = 30.0
     /// </code>
     /// </example>
     public static TOut Pipe<TIn, T2, T3, TOut>(this TIn value, Func<TIn, T2, T3, TOut> func, T2 arg2, T3 arg3)
