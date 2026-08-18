@@ -41,6 +41,36 @@ public class DeferTests
     }
 
     [Fact]
+    public void Defer_DisposedTwice_RunsTheActionOnce()
+    {
+        // Arrange
+        var count = 0;
+        var deferred = defer(() => count++);
+
+        // Act - a using block plus an explicit Dispose is the shape that happens by accident
+        deferred.Dispose();
+        deferred.Dispose();
+
+        // Assert
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task Defer_AsyncDisposedTwice_RunsTheActionOnce()
+    {
+        // Arrange
+        var count = 0;
+        var deferred = defer(() => { count++; return Task.CompletedTask; });
+
+        // Act
+        await deferred.DisposeAsync();
+        await deferred.DisposeAsync();
+
+        // Assert
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
     public void Defer_MultipleDefers_ExecuteInLIFOOrder()
     {
         // Arrange
