@@ -1,4 +1,4 @@
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Immutable;
 
@@ -14,8 +14,8 @@ public class UnionCaseNamingTests
     [InlineData("int", "Int32")]
     [InlineData("string", "String")]
     [InlineData("int[]", "Int32Array")]
-    [InlineData("System.Collections.Generic.List<string>", "ListOfString")]
-    [InlineData("System.Collections.Generic.Dictionary<string, int>", "DictionaryOfStringInt32")]
+    [InlineData("System.Collections.Generic.List<string>", "List")]
+    [InlineData("System.Collections.Generic.Dictionary<string, int>", "Dictionary")]
     [InlineData("(int X, int Y)", "TupleOfInt32Int32")]
     public void GetSimpleName_DerivesWrapperName(string typeExpression, string expected)
     {
@@ -139,6 +139,8 @@ public class UnionCaseNamingTests
 
         Assert.False(unresolved);
         Assert.Equal("IntCase", names[0]);
+        // The override pins Some<int>; Some<string> falls back to the argument-qualified
+        // form, which is what separates two constructions of one generic definition.
         Assert.Equal("SomeOfString", names[1]);
     }
 

@@ -66,8 +66,6 @@ public sealed record Fail<E>(E ErrorValue);
 ///     ProcessUser(result);
 /// </code>
 /// </example>
-[UnionCaseName<Ok<int>>("Ok")]
-[UnionCaseName<Fail<int>>("Fail")]
 public abstract partial record ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>
 {
     /// <summary>Alias for <c>IsOk</c>, for FluentResults-style code.</summary>

@@ -1,4 +1,4 @@
-# Option<T> - Optional Values
+﻿# Option<T> - Optional Values
 
 **Type-safe representation of optional values**
 
@@ -608,7 +608,6 @@ interface (see [Union Types](Union.md)):
 public sealed record Some<T>(T Value);
 public sealed record None;
 
-[UnionCaseName<Some<int>>("Some")]
 public abstract partial record Option<T> : IUnion<Some<T>, None>;
 ```
 

@@ -26,7 +26,6 @@ public sealed record Some<T>(T Value);
 /// };
 /// </code>
 /// </example>
-[UnionCaseName<Some<int>>("Some")]
 public abstract partial record Option<T> : IUnion<Some<T>, None>;
 
 /// <summary>

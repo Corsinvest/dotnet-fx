@@ -1,4 +1,4 @@
-# Union Types - Discriminated Unions
+﻿# Union Types - Discriminated Unions
 
 **Create type-safe union types with source generators**
 
@@ -244,8 +244,11 @@ in order:
 1. **The case type's own short name**, by default - `Cat` → `Pet.Cat`.
 2. **Namespace-prefixed**, when two cases' short names collide - `Farm.Cat` and `Wild.Cat` both
    start as `Cat`, so they become `FarmCat` and `WildCat`.
-3. **`ListOf`/`DictionaryOf`-style names for closed generics** - `List<string>` →
-   `ListOfString`, `Dictionary<string, int>` → `DictionaryOfStringInt32`.
+3. **Generic case types keep their bare name** - `Some<T>` → `Some`, `List<string>` → `List`.
+   A union normally carries one case per generic definition, so the type arguments add nothing.
+   When a union really does hold two constructions of the same definition, both get the
+   argument-qualified form instead: `IUnion<Box<int>, Box<string>>` yields `BoxOfInt32` and
+   `BoxOfString`.
 4. **`{Element}Array` for arrays** - `int[]` → `Int32Array`.
 5. **`TupleOf...` for tuples**, named or not - `(int X, int Y)` → `TupleOfInt32Int32` (element
    names do not affect the wrapper name; see [UNION009](#union009-implicit-conversions-omitted-for-the-whole-union)
@@ -284,8 +287,9 @@ public abstract partial record Pet : IUnion<Cat, Cat>;
 
 `[UnionCaseName<T>("...")]` is itself an attribute, so its own type argument is bound by the same
 rule as any other attribute argument: it must be **closed** - it cannot mention the root's type
-parameter either. That looks like a problem for a case like `Option<T>`'s `Some<T>`, which only
-ever appears as the open generic `Some<T>` in the declaration:
+parameter either. That matters whenever you do want to rename such a case - say a `Wrapped<T>`
+whose default name `Wrapped` collides with something else - since it only ever appears as the
+open generic in the declaration:
 
 ```csharp
 public abstract partial record Option<T> : IUnion<Some<T>, None>;
@@ -295,8 +299,8 @@ The override works anyway, by naming a **closed stand-in** instead - any fully-c
 version of the same open generic:
 
 ```csharp
-[UnionCaseName<Some<int>>("Some")]     // pins the wrapper name for Some<T>, not just Some<int>
-public abstract partial record Option<T> : IUnion<Some<T>, None>;
+[UnionCaseName<Wrapped<int>>("Payload")]   // renames Wrapped<T>, not just Wrapped<int>
+public abstract partial record Envelope<T> : IUnion<Wrapped<T>, None>;
 ```
 
 The naming logic matches this by **original definition**: `Some<int>` and the case type `Some<T>`
@@ -746,17 +750,14 @@ void LogResult(Result result) => result.Match(
 
 `Option<T>` ships with the package; this is the shape it is built from - a case closing over the
 root's own type parameter, which only the interface form can express (see
-[Why an interface, and not an attribute?](#why-an-interface-and-not-an-attribute)). Without an
-override, `Some<T>`'s default wrapper name would be `SomeOfT` (rule 3 above: generic case types
-get a `{Name}Of{Args}` name); `[UnionCaseName<Some<int>>("Some")]` overrides it to the shorter
-`Some`, matched by original definition so it applies at every closed `Option<TSomething>` (see
-[`[UnionCaseName<T>]` on a case that closes over the root's own type parameter](#unioncasenamet-on-a-case-that-closes-over-the-roots-own-type-parameter)):
+[Why an interface, and not an attribute?](#why-an-interface-and-not-an-attribute)). The wrapper is
+named `Some` with no override needed: rule 3 keeps a generic case type's bare name, and this union
+holds only one construction of `Some<>`:
 
 ```csharp
 public sealed record Some<T>(T Value);
 public sealed record None;
 
-[UnionCaseName<Some<int>>("Some")]
 public abstract partial record Option<T> : IUnion<Some<T>, None>;
 
 Option<int> ParseInt(string input) =>

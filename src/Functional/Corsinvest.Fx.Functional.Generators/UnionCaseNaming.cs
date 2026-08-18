@@ -1,4 +1,4 @@
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -33,17 +33,33 @@ public static class UnionCaseNaming
                 return elements.ToString();
 
             case INamedTypeSymbol { IsGenericType: true } generic:
-                var builder = new StringBuilder(generic.Name).Append("Of");
-                foreach (var argument in generic.TypeArguments)
-                {
-                    builder.Append(GetSimpleName(argument));
-                }
-                return builder.ToString();
+                // The bare name, not Name+Of+args: a union usually has one case per generic
+                // definition, and Option<T>.Some reads better than Option<T>.SomeOfT. When a
+                // union really does carry two constructions of the same definition, ResolveNames
+                // falls back to the argument-qualified form for the ones that clash.
+                return generic.Name;
 
             default:
                 // Use the CLR name so that `int` becomes Int32 rather than an illegal identifier.
                 return type.Name;
         }
+    }
+
+    /// <summary>
+    /// The argument-qualified form of a generic case name, e.g. <c>SomeOfInt32</c>, used only to
+    /// separate two constructions of one generic definition within the same union.
+    /// </summary>
+    /// <param name="generic">The constructed generic case type.</param>
+    private static string GetArgumentQualifiedName(INamedTypeSymbol generic)
+    {
+        var builder = new StringBuilder(generic.Name).Append("Of");
+
+        foreach (var argument in generic.TypeArguments)
+        {
+            builder.Append(GetSimpleName(argument));
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>
@@ -71,6 +87,29 @@ public static class UnionCaseNaming
             names[i] = FindOverride(caseTypes[i], overrides, rootTypeParameters, out var custom)
                 ? custom
                 : GetSimpleName(caseTypes[i]);
+        }
+
+        // A generic case keeps its bare name, so two constructions of one definition
+        // (Some<int> and Some<string>) would both want "Some" - even when an override has already
+        // renamed one of them and hidden the clash from a name-only comparison. Qualify by type
+        // argument whenever a definition appears more than once, then fall back to the namespace
+        // prefix for whatever still collides by name.
+        var repeatedDefinitions = caseTypes
+            .OfType<INamedTypeSymbol>()
+            .Where(t => t.IsGenericType)
+            .GroupBy(t => t.OriginalDefinition, SymbolEqualityComparer.Default)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToImmutableHashSet(SymbolEqualityComparer.Default);
+
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (caseTypes[i] is INamedTypeSymbol { IsGenericType: true } repeated
+                && repeatedDefinitions.Contains(repeated.OriginalDefinition)
+                && !FindOverride(caseTypes[i], overrides, rootTypeParameters, out _))
+            {
+                names[i] = GetArgumentQualifiedName(repeated);
+            }
         }
 
         // Prefix the namespace only for the names that actually clash.

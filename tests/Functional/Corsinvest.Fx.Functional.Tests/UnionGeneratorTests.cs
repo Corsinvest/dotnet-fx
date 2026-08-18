@@ -111,6 +111,8 @@ public class UnionGeneratorTests
             """);
 
         Assert.Contains("record Some(global::Some<T> Value)", generated);
+        // The bare name is now the default for a generic case, so no override is needed
+        // to keep Option<T>.Some readable - SomeOfT would be a regression.
         Assert.DoesNotContain("SomeOfT", generated);
     }
 
@@ -315,17 +317,17 @@ public class UnionGeneratorTests
             public abstract partial record Res<T, E> : IUnion<Good<T>, Bad<E>>;
             """);
 
-        // Wrapper names are derived from each case type's simple name (UnionCaseNaming): the open
-        // generic Good<T>/Bad<E> - T and E being the root's own type parameters - derive to
-        // GoodOfT/BadOfE rather than plain Good/Bad, since nothing here overrides them via
-        // [UnionCaseName<...>].
+        // Wrapper names come from each case type's simple name (UnionCaseNaming). A generic case
+        // keeps its bare name - Good<T> becomes Good, not GoodOfT - because a union normally
+        // carries one case per generic definition. The argument-qualified form is reserved for
+        // the collision case, where one union holds two constructions of the same definition.
 
         // Instance void MatchAsync, generic over the root's own T/E.
         Assert.Contains("public async Task MatchAsync(", generated);
-        Assert.Contains("Func<global::Good<T>, Task> onGoodOfT", generated);
-        Assert.Contains("Func<global::Bad<E>, Task> onBadOfE", generated);
-        Assert.Contains("case GoodOfT wrapped: await onGoodOfT(wrapped.Value); break;", generated);
-        Assert.Contains("case BadOfE wrapped: await onBadOfE(wrapped.Value); break;", generated);
+        Assert.Contains("Func<global::Good<T>, Task> onGood", generated);
+        Assert.Contains("Func<global::Bad<E>, Task> onBad", generated);
+        Assert.Contains("case Good wrapped: await onGood(wrapped.Value); break;", generated);
+        Assert.Contains("case Bad wrapped: await onBad(wrapped.Value); break;", generated);
 
         // ResUnionExtensions class, generic over <T, E> (plus TResult for the two overloads that
         // need it), operating on Task<Res<T, E>>.
@@ -333,8 +335,8 @@ public class UnionGeneratorTests
         Assert.Contains("public static async Task<TResult> MatchAsync<T, E, TResult>(", generated);
         Assert.Contains("this Task<Res<T, E>> task,", generated);
         Assert.Contains("public static async Task MatchAsync<T, E>(", generated);
-        Assert.Contains("Func<global::Good<T>, Task<TResult>> onGoodOfT", generated);
-        Assert.Contains("Func<global::Good<T>, TResult> onGoodOfT", generated);
+        Assert.Contains("Func<global::Good<T>, Task<TResult>> onGood", generated);
+        Assert.Contains("Func<global::Good<T>, TResult> onGood", generated);
     }
 
     [Fact]
