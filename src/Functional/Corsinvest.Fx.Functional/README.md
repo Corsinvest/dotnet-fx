@@ -44,11 +44,8 @@ using static Corsinvest.Fx.Functional.Option;
 using static Corsinvest.Fx.Functional.ResultOf;
 ```
 
-`TryHelper` is deliberately **not** a global static import: its `Try<T>(Func<T>)` has the same
-signature as `ResultOf.Try<T>(Func<T>)`, and importing both would make every unqualified `Try(...)`
-ambiguous (CS0121). `ResultOf.Try` is what an unqualified `Try(...)` resolves to; reach for
-`TryHelper.Try(...)` by name when you want its `Action` overloads, which return
-`ResultOf<`[`Unit`](docs/Unit.md)`, E>`.
+An unqualified `Try(...)` resolves to `ResultOf.Try`, which also carries the `Action` overloads
+returning `ResultOf<`[`Unit`](docs/Unit.md)`, E>`.
 
 ## Quick Examples
 

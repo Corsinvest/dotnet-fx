@@ -60,24 +60,24 @@ result.Match(
 
 ## Basic Usage
 
-There are two main ways to use `Try`: the static `TryHelper` class and the `.Try()` extension methods.
+There are two ways to use `Try`: the static `ResultOf.Try` methods and the `.Try()` extension methods.
 
-### 1. `TryHelper` for Standalone Functions
+### 1. `ResultOf.Try` for Standalone Functions
 
-Use `TryHelper` to wrap a function or action that stands on its own.
+Use `ResultOf.Try` to wrap a function or action that stands on its own.
 
 ```csharp
 using Corsinvest.Fx.Functional;
 
 // For functions that return a value
-ResultOf<int, Exception> result = TryHelper.Try(() => int.Parse("42"));
+ResultOf<int, Exception> result = ResultOf.Try(() => int.Parse("42"));
 // Ok(42)
 
-ResultOf<int, Exception> failedResult = TryHelper.Try(() => int.Parse("abc"));
+ResultOf<int, Exception> failedResult = ResultOf.Try(() => int.Parse("abc"));
 // Fail(FormatException)
 
 // For actions that don't return a value
-ResultOf<Unit, Exception> actionResult = TryHelper.Try(() => Console.WriteLine("Hello"));
+ResultOf<Unit, Exception> actionResult = ResultOf.Try(() => Console.WriteLine("Hello"));
 // Ok(Unit.Value)
 ```
 
@@ -115,7 +115,7 @@ what makes it composable, and it is also its sharpest edge:
 using var cts = new CancellationTokenSource();
 cts.Cancel();
 
-var result = await TryHelper.TryAsync(async () =>
+var result = await ResultOf.TryAsync(async () =>
 {
     await Task.Delay(1000, cts.Token);
     return 42;
@@ -129,7 +129,7 @@ never sees it. Where cancellation has to stay cancellation, keep the `await` out
 only the part that can genuinely fail - or map it back:
 
 ```csharp
-var result = await TryHelper.TryAsync(work, ex => ex switch
+var result = await ResultOf.TryAsync(work, ex => ex switch
 {
     OperationCanceledException => throw ex,   // let cancellation through
     _ => MyError.From(ex)
@@ -167,11 +167,11 @@ content.Match(
 
 The `Try` pattern works seamlessly with `async/await` using `TryAsync` helpers and extensions.
 
-### 1. `TryHelper.TryAsync`
+### 1. `ResultOf.TryAsync`
 
 ```csharp
 public async Task<ResultOf<string, Exception>> FetchDataAsync(string url) =>
-    await TryHelper.TryAsync(async () =>
+    await ResultOf.TryAsync(async () =>
     {
         using var client = new HttpClient();
         var response = await client.GetStringAsync(url);
@@ -209,7 +209,7 @@ result.Match(
 
 ## API Reference
 
-### `TryHelper` Class
+### `ResultOf` static methods
 
 ```csharp
 // Synchronous execution

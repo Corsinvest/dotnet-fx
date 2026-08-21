@@ -28,7 +28,7 @@ An action returns nothing but can still throw, so `Try` hands back the one thing
 whether it threw:
 
 ```csharp
-ResultOf<Unit, Exception> saved = TryHelper.Try(() => File.WriteAllText(path, content));
+ResultOf<Unit, Exception> saved = ResultOf.Try(() => File.WriteAllText(path, content));
 
 saved.Match(
     ok => Console.WriteLine("Saved"),

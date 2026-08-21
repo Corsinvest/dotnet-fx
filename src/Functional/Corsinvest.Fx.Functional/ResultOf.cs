@@ -393,6 +393,52 @@ public static class ResultOf
         }
     }
 
+    /// <summary>
+    /// Runs an action that produces no value, capturing any exception.
+    /// </summary>
+    /// <remarks>
+    /// An action returns nothing, but <c>ResultOf&lt;void, E&gt;</c> is not a thing you can write -
+    /// <see langword="void"/> is a keyword, not a type. <see cref="Unit"/> stands in for it, so
+    /// the result carries only whether the action threw.
+    /// </remarks>
+    /// <param name="action">The action to run</param>
+    /// <returns>Ok(<see cref="Unit"/>) if the action returned, Fail with the exception otherwise</returns>
+    /// <example>
+    /// <code>
+    /// var saved = ResultOf.Try(() => File.WriteAllText(path, content));
+    /// </code>
+    /// </example>
+    public static ResultOf<Unit, Exception> Try(Action action)
+        => Try(() => { action(); return Unit.Value; });
+
+    /// <summary>
+    /// Runs an action that produces no value, mapping any exception to a custom error type.
+    /// </summary>
+    /// <typeparam name="E">The type of the custom error</typeparam>
+    /// <param name="action">The action to run</param>
+    /// <param name="errorMapper">Converts the exception into the error type</param>
+    /// <returns>Ok(<see cref="Unit"/>) if the action returned, Fail with the mapped error otherwise</returns>
+    public static ResultOf<Unit, E> Try<E>(Action action, Func<Exception, E> errorMapper)
+        => Try(() => { action(); return Unit.Value; }, errorMapper);
+
+    /// <summary>
+    /// Runs an async action that produces no value, capturing any exception.
+    /// </summary>
+    /// <param name="action">The async action to run</param>
+    /// <returns>Ok(<see cref="Unit"/>) if the action completed, Fail with the exception otherwise</returns>
+    public static async Task<ResultOf<Unit, Exception>> TryAsync(Func<Task> action)
+        => await TryAsync(async () => { await action(); return Unit.Value; });
+
+    /// <summary>
+    /// Runs an async action that produces no value, mapping any exception to a custom error type.
+    /// </summary>
+    /// <typeparam name="E">The type of the custom error</typeparam>
+    /// <param name="action">The async action to run</param>
+    /// <param name="errorMapper">Converts the exception into the error type</param>
+    /// <returns>Ok(<see cref="Unit"/>) if the action completed, Fail with the mapped error otherwise</returns>
+    public static async Task<ResultOf<Unit, E>> TryAsync<E>(Func<Task> action, Func<Exception, E> errorMapper)
+        => await TryAsync(async () => { await action(); return Unit.Value; }, errorMapper);
+
     // ============================================
     // Combining Results
     // ============================================
