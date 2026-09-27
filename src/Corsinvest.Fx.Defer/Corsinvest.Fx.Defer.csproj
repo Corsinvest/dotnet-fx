@@ -4,7 +4,7 @@
     <!-- Package Information (unique to this package) -->
     <PackageId>Corsinvest.Fx.Defer</PackageId>
     <Title>Go-style defer for C#</Title>
-    <Description>Go-style defer statements for C#. Automatic cleanup on scope exit with non-blocking async support. Compile-time safety enforces await using for async defers. Zero-configuration global availability.</Description>
+    <Description>Go-style defer for C#: run a cleanup action when the scope exits, written next to the thing it undoes. For cleanup that is not a Dispose() - restoring state, balancing counters, Begin/End pairs on APIs that never implemented IDisposable. Async defers return IAsyncDisposable, so the compiler enforces 'await using' and blocking a thread on an async cleanup cannot reach runtime.</Description>
     <PackageTags>defer;go;cleanup;dispose;scope;resource-management;async;lifo;zig;swift;await-using</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
 

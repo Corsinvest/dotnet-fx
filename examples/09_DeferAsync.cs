@@ -3,193 +3,217 @@
  * SPDX-License-Identifier: MIT
  */
 
+using System.Globalization;
+using System.Diagnostics;
 using static Corsinvest.Fx.Defer.Defer;
 
 namespace Corsinvest.Fx.Examples;
 
 /// <summary>
-/// Example 09: Defer Async - Go-style Resource Cleanup
+/// Example 09: Defer - cleanup that is not a Dispose()
 ///
-/// Demonstrates defer pattern for automatic resource cleanup:
-/// - Async cleanup with await using
-/// - Database connections
-/// - File streams
-/// - HTTP clients
-/// - Transaction rollback
+/// When a resource implements IDisposable, plain `using` is shorter, faster and safer - use that.
+/// What `using` cannot express is an arbitrary action at scope exit, which is what defer is for:
+/// - Restoring a value you changed
+/// - Balancing a counter across every exit path
+/// - Closing a Begin/End pair on an API that never implemented IDisposable
+/// - Side effects at scope exit (temp files, metrics)
+/// - Async cleanup, where `await using` is enforced by the compiler
 /// </summary>
 public static class DeferAsync
 {
     public static async Task Run()
     {
-        Console.WriteLine("\n═══ Example 09: Defer Async (Resource Cleanup) ═══\n");
+        Console.WriteLine("\n═══ Example 09: Defer (Scope-Exit Cleanup) ═══\n");
 
-        // Example 1: Database connection cleanup
-        await Example1_DatabaseConnection();
-
-        // Example 2: File operations
-        await Example2_FileOperations();
-
-        // Example 3: HTTP client cleanup
-        await Example3_HttpClient();
-
-        // Example 4: Transaction with rollback
-        await Example4_TransactionRollback();
-
-        // Example 5: Multiple resource cleanup (LIFO order)
-        await Example5_MultipleResources();
+        Example1_RestoringState();
+        Example2_BalancingACounter();
+        Example3_BeginEndPair();
+        Example4_TempFileAndMetrics();
+        Example5_LifoOrder();
+        await Example6_AsyncCleanup();
+        Example7_StatePassingForm();
     }
 
-    // Example 1: Database connection with automatic close
-    private static async Task Example1_DatabaseConnection()
+    // Example 1: restoring a value - the canonical case `using` cannot express, because there is
+    // no object to dispose, only a value to put back.
+    private static void Example1_RestoringState()
     {
-        Console.WriteLine("1️⃣  Database Connection Cleanup\n");
+        Console.WriteLine("1️⃣  Restoring state\n");
 
-        await using var _ = defer(async () =>
+        Console.WriteLine($"   → Culture before: {Describe(CultureInfo.CurrentCulture)}");
+
         {
-            Console.WriteLine("   → Connection closed");
-            await Task.Delay(5);
-        });
+            var previous = CultureInfo.CurrentCulture;
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+            using var _ = defer(() => CultureInfo.CurrentCulture = previous);
 
-        Console.WriteLine("   → Opening database connection...");
-        await Task.Delay(10);
-        Console.WriteLine("   → Executing query...");
-        await Task.Delay(10);
-        Console.WriteLine("   → Query complete");
-        // Connection will be closed automatically when scope exits
+            Console.WriteLine($"   → Inside scope:   {CultureInfo.CurrentCulture.Name}");
+            Console.WriteLine($"   → 1234.5 formats as {1234.5:N2}");
+        }
+
+        Console.WriteLine($"   → Culture after:  {Describe(CultureInfo.CurrentCulture)}");
+        Console.WriteLine();
+
+        static string Describe(CultureInfo c) => string.IsNullOrEmpty(c.Name) ? "(invariant)" : c.Name;
+    }
+
+    private static int _depth;
+
+    // Example 2: the decrement sits next to the increment, so an early return added later cannot
+    // skip it. With try/finally this lives pages below; with defer it is one line.
+    private static void Example2_BalancingACounter()
+    {
+        Console.WriteLine("2️⃣  Balancing a counter\n");
+
+        Walk("root", 0);
+        Console.WriteLine($"   → Depth back to {_depth} after the walk");
+        Console.WriteLine();
+
+        static void Walk(string node, int childCount)
+        {
+            _depth++;
+            using var _ = defer(() => _depth--);
+
+            Console.WriteLine($"   {new string(' ', _depth * 2)}→ {node} (depth {_depth})");
+
+            if (_depth >= 3) { return; }   // early exit - still decremented
+
+            for (var i = 0; i < 2; i++) { Walk($"{node}.{i}", childCount); }
+        }
+    }
+
+    // Example 3: paired calls on an API that never implemented IDisposable - common in interop,
+    // graphics and older libraries.
+    private static void Example3_BeginEndPair()
+    {
+        Console.WriteLine("3️⃣  Begin/End pair\n");
+
+        var api = new LegacyBatchApi();
+
+        {
+            api.BeginBatch();
+            using var _ = defer(() => api.EndBatch());
+
+            api.Add("first");
+            api.Add("second");
+        }
 
         Console.WriteLine();
     }
 
-    // Example 2: File operations with cleanup
-    private static async Task Example2_FileOperations()
+    // Example 4: side effects at scope exit - nothing is being released at all.
+    private static void Example4_TempFileAndMetrics()
     {
-        Console.WriteLine("2️⃣  File Operations Cleanup\n");
+        Console.WriteLine("4️⃣  Temp file and elapsed time\n");
 
-        await using var _ = defer(async () =>
         {
-            Console.WriteLine("   → File handle released");
-            await Task.Delay(5);
-        });
-
-        Console.WriteLine("   → Opening file...");
-        await Task.Delay(10);
-        Console.WriteLine("   → Writing data...");
-        await Task.Delay(10);
-        Console.WriteLine("   → Flushing buffer...");
-        await Task.Delay(10);
-        // File will be closed automatically
-
-        Console.WriteLine();
-    }
-
-    // Example 3: HTTP client cleanup
-    private static async Task Example3_HttpClient()
-    {
-        Console.WriteLine("3️⃣  HTTP Client Cleanup\n");
-
-        await using var _ = defer(async () =>
-        {
-            Console.WriteLine("   → HTTP client disposed");
-            await Task.Delay(5);
-        });
-
-        Console.WriteLine("   → Creating HTTP client...");
-        await Task.Delay(10);
-        Console.WriteLine("   → Sending request...");
-        await Task.Delay(10);
-        Console.WriteLine("   → Response received");
-        // HTTP client will be disposed automatically
-
-        Console.WriteLine();
-    }
-
-    // Example 4: Transaction with automatic rollback on error
-    private static async Task Example4_TransactionRollback()
-    {
-        Console.WriteLine("4️⃣  Transaction with Rollback\n");
-
-        var committed = false;
-
-        try
-        {
-            await using var _ = defer(async () =>
+            var tempPath = Path.GetTempFileName();
+            using var _1 = defer(() =>
             {
-                if (!committed)
-                {
-                    Console.WriteLine("   → Transaction rolled back (cleanup)");
-                    await Task.Delay(5);
-                }
-                else
-                {
-                    Console.WriteLine("   → Transaction committed successfully");
-                }
+                File.Delete(tempPath);
+                Console.WriteLine($"   → Temp file deleted: {Path.GetFileName(tempPath)}");
             });
 
-            Console.WriteLine("   → Starting transaction...");
-            await Task.Delay(10);
+            var timer = Stopwatch.StartNew();
+            using var _2 = defer(() => Console.WriteLine($"   → Scope took {timer.ElapsedMilliseconds} ms"));
 
-            Console.WriteLine("   → Insert operation 1...");
-            await Task.Delay(10);
-
-            Console.WriteLine("   → Insert operation 2...");
-            await Task.Delay(10);
-
-            // Simulate error (comment out to see successful commit)
-            // throw new InvalidOperationException("Database error!");
-
-            Console.WriteLine("   → Committing transaction...");
-            committed = true;
-            await Task.Delay(10);
-
-            // Defer will run after this point
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"   ❌ Error: {ex.Message}");
-            // Defer will still run and rollback
-        }
+            File.WriteAllText(tempPath, "work in progress");
+            Console.WriteLine($"   → Wrote {new FileInfo(tempPath).Length} bytes");
+            Thread.Sleep(15);
+        }   // both defers run here, in reverse order
 
         Console.WriteLine();
     }
 
-    // Example 5: Multiple resources (LIFO cleanup order)
-    private static async Task Example5_MultipleResources()
+    // Example 5: defers run last-registered-first, like nested using blocks.
+    private static void Example5_LifoOrder()
     {
-        Console.WriteLine("5️⃣  Multiple Resources (LIFO Order)\n");
+        Console.WriteLine("5️⃣  LIFO order\n");
 
-        Console.WriteLine("   → Acquiring Resource A...");
-        await using var _resourceA = defer(async () =>
         {
-            Console.WriteLine("   → Released Resource A (last acquired, first released)");
-            await Task.Delay(5);
-        });
+            using var _a = defer(() => Console.WriteLine("   → Released A (registered first, released last)"));
+            using var _b = defer(() => Console.WriteLine("   → Released B"));
+            using var _c = defer(() => Console.WriteLine("   → Released C (registered last, released first)"));
 
-        await Task.Delay(10);
-
-        Console.WriteLine("   → Acquiring Resource B...");
-        await using var _resourceB = defer(async () =>
-        {
-            Console.WriteLine("   → Released Resource B");
-            await Task.Delay(5);
-        });
-
-        await Task.Delay(10);
-
-        Console.WriteLine("   → Acquiring Resource C...");
-        await using var _resourceC = defer(async () =>
-        {
-            Console.WriteLine("   → Released Resource C (first to be released)");
-            await Task.Delay(5);
-        });
-
-        Console.WriteLine("   → Using all resources...");
-        await Task.Delay(10);
-
-        Console.WriteLine("   → Done with resources");
-        // Resources will be released in reverse order: C, B, A
+            Console.WriteLine("   → Body runs first");
+        }
 
         Console.WriteLine();
     }
 
-    // Note: defer() is globally available via Defer.defer() static method
+    // Example 6: the async overload returns IAsyncDisposable, so `await using` is the only way to
+    // consume it - plain `using` is a compile error (CS8418). The cleanup is awaited, never
+    // blocked on and never fired and forgotten.
+    private static async Task Example6_AsyncCleanup()
+    {
+        Console.WriteLine("6️⃣  Async cleanup (await using enforced)\n");
+
+        var api = new LegacyBatchApi();
+
+        await using (defer(async () =>
+        {
+            await Task.Delay(10);
+            Console.WriteLine("   → EndBatchAsync completed (awaited, not blocked on)");
+        }))
+        {
+            api.BeginBatch();
+            Console.WriteLine("   → Working inside the batch...");
+            await Task.Delay(10);
+        }
+
+        // using var _ = defer(async () => ...);   // error CS8418 - by design
+
+        Console.WriteLine();
+    }
+
+    private static int _sink;
+
+    // Example 7: passing the state explicitly lets the lambda be static, so no display class and
+    // no per-call delegate are allocated. Use it where a measurement says it matters.
+    private static void Example7_StatePassingForm()
+    {
+        Console.WriteLine("7️⃣  State-passing form (fewer allocations)\n");
+
+        _sink = 10;
+        Console.WriteLine($"   → Before: {_sink}");
+
+        {
+            var previous = _sink;
+            _sink = 99;
+
+            // `static` here is the point: the lambda cannot capture, so the value has to be passed.
+            using var _ = defer(previous, static value => _sink = value);
+
+            Console.WriteLine($"   → Inside: {_sink}");
+        }
+
+        Console.WriteLine($"   → After:  {_sink}");
+        Console.WriteLine("   → 112 B per scope capturing, 32 B state-passing (.NET 8)");
+        Console.WriteLine();
+    }
+
+    // A stand-in for the kind of API this package exists for: paired calls, no IDisposable.
+    private sealed class LegacyBatchApi
+    {
+        private bool _open;
+
+        public void BeginBatch()
+        {
+            _open = true;
+            Console.WriteLine("   → BeginBatch()");
+        }
+
+        public void Add(string item)
+        {
+            if (!_open) { throw new InvalidOperationException("Batch is not open"); }
+            Console.WriteLine($"   → Add(\"{item}\")");
+        }
+
+        public void EndBatch()
+        {
+            _open = false;
+            Console.WriteLine("   → EndBatch()");
+        }
+    }
 }
