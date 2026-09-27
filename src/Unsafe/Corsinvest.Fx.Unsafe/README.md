@@ -11,7 +11,7 @@
 
 ## ⚠️ EXPERIMENTAL PACKAGE
 
-**Status**: Alpha release (v0.1.0-alpha)
+**Status**: Experimental (v1.0.0)
 
 This package is **experimental** and:
 - ❌ **NOT production-ready** - API may change significantly

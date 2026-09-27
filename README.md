@@ -33,7 +33,7 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
    └─ Data transformation pipelines
 
 ✅ Modern Language Features
-   └─ defer (Go-style resource cleanup)
+   └─ defer (Go-style scope-exit cleanup)
    └─ Inline assembly (Rust/Zig-style performance - experimental)
 ```
 
@@ -49,7 +49,7 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
 
 - **Type-safe error handling** without exceptions (`ResultOf<T,E>`, `Option<T>`)
 - **Discriminated unions** with pattern matching (`IUnion<T1..T8>` marker interface)
-- **Go-style resource cleanup** (`defer`)
+- **Go-style scope-exit cleanup** (`defer`) - for cleanup that isn't a `Dispose()`
 - **Data transformation pipelines** (`Pipe` extensions)
 - **Gradual adoption** in existing C# codebases
 - **Minimal learning curve** for your team
@@ -72,7 +72,7 @@ It's a pragmatic suite of **modern patterns and high-level features** that C# la
 | Package | Description | Status |
 |---------|-------------|--------|
 | **[Corsinvest.Fx.Functional](src/Functional/Corsinvest.Fx.Functional/)** | `ResultOf<T,E>`, `Option<T>`, `IUnion<T1..T8>` marker interface. Railway-oriented programming, pattern matching, LINQ support. | ✅ Stable |
-| **[Corsinvest.Fx.Defer](src/Corsinvest.Fx.Defer/)** | Go-style defer statements for automatic cleanup on scope exit. | ✅ Stable |
+| **[Corsinvest.Fx.Defer](src/Corsinvest.Fx.Defer/)** | Go-style `defer` for cleanup that isn't a `Dispose()`: restoring state, balancing counters, `Begin`/`End` pairs. | ✅ Stable |
 
 ### Experimental Packages
 
@@ -112,20 +112,21 @@ result.Match(
 );
 ```
 
-**2. Automatic Cleanup (Defer)**
+**2. Scope-Exit Cleanup (Defer)**
 ```csharp
 using static Corsinvest.Fx.Defer.Defer;
 
-var file = File.Open(path, FileMode.Open);
-using var _ = defer(() => file.Close());
-// File closes automatically
+var previous = Console.ForegroundColor;
+Console.ForegroundColor = ConsoleColor.Red;
+using var _ = defer(() => Console.ForegroundColor = previous);
+// Restored on every exit path - for an IDisposable, use plain `using` instead
 ```
 
 **Experimental packages**: Unsafe (inline assembly), CompileTime (compile-time computation)
 
 📖 **See individual package READMEs for complete documentation**:
 - [Functional](src/Functional/Corsinvest.Fx.Functional/README.md) - ResultOf, Option, Union types
-- [Defer](src/Corsinvest.Fx.Defer/README.md) - Resource cleanup
+- [Defer](src/Corsinvest.Fx.Defer/README.md) - Scope-exit cleanup
 
 ---
 
@@ -146,7 +147,7 @@ The [`examples/`](examples/) folder contains practical, runnable code demonstrat
 
 - **[07_OptionChaining.cs](examples/07_OptionChaining.cs)** - OrElse cascading, Flatten, lazy evaluation
 - **[08_ResultOfRecover.cs](examples/08_ResultOfRecover.cs)** - Recovery strategies, retry logic
-- **[09_DeferAsync.cs](examples/09_DeferAsync.cs)** - Async resource cleanup
+- **[09_DeferAsync.cs](examples/09_DeferAsync.cs)** - Async cleanup with `await using`
 - **[10_CompileTimeBasics.cs](examples/10_CompileTimeBasics.cs)** - Compile-time evaluation *(experimental)*
 
 Run all examples:
@@ -235,22 +236,28 @@ var userName = FindUser(42)
     .GetValueOr("Guest");
 ```
 
-### Defer - Automatic Cleanup
+### Defer - Scope-Exit Cleanup
 
-Go-style resource management:
+For cleanup that is **not** a `Dispose()`. When the resource implements `IDisposable`, plain
+`using` is shorter and faster - what it cannot express is an arbitrary action at scope exit:
+restoring a value, balancing a counter, closing a `Begin`/`End` pair on an API that never
+implemented `IDisposable`.
 
 ```csharp
 using static Corsinvest.Fx.Defer.Defer;
 
-void ProcessFile(string path)
+void Walk(Node node)
 {
-    var file = File.Open(path, FileMode.Open);
-    using var _ = defer(() => file.Close());
+    _depth++;
+    using var _ = defer(() => _depth--);
 
-    // File automatically closed on scope exit (even on exception)
-    ProcessData(file);
+    if (_depth > MaxDepth) { return; }   // still decremented, on every exit path
+    foreach (var child in node.Children) { Walk(child); }
 }
 ```
+
+Async cleanup returns `IAsyncDisposable`, so `await using` is enforced by the compiler - blocking
+a thread on an async cleanup becomes a compile error rather than a production bug.
 
 ---
 
@@ -259,7 +266,7 @@ void ProcessFile(string path)
 For common issues and solutions, please refer to the **Troubleshooting** section in the README of the specific package you are using:
 
 - [Functional Package Troubleshooting](src/Functional/Corsinvest.Fx.Functional/README.md#-troubleshooting)
-- [Defer Package Troubleshooting](src/Corsinvest.Fx.Defer/README.md#-troubleshooting)
+- [Defer Package Troubleshooting](src/Corsinvest.Fx.Defer/README.md#troubleshooting)
 
 If you still need help:
 
@@ -302,8 +309,7 @@ Each package has its own detailed README:
 - [Unsafe - Inline Assembly](src/Unsafe/Corsinvest.Fx.Unsafe/README.md) *(experimental)*
 - [CompileTime - Compile-Time Computation](src/CompileTime/README.md) *(experimental)*
 
-Upgrading? The [CHANGELOG](CHANGELOG.md) lists what changed, and 2.0.0's union rewrite has a
-[migration guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#migrating-from-1x).
+The [CHANGELOG](CHANGELOG.md) lists what each release covers.
 
 ---
 
