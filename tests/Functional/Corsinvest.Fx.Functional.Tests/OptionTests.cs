@@ -156,6 +156,31 @@ public class OptionTests
     }
 
     [Fact]
+    public void TryGetValue_WithNone_ReferenceTypeIsNull()
+    {
+        var option = Option.None<string>();
+
+        Assert.False(option.TryGetValue(out var value));
+        Assert.Null(value);
+    }
+
+    [Fact]
+    public void TryGetValue_IsAnnotatedMaybeNullWhenFalse()
+    {
+        // Without the annotation the signature promises a non-null value even on the false path,
+        // so a caller who ignores the bool dereferences null with no warning.
+        var parameter = typeof(OptionExtensions)
+            .GetMethods()
+            .Single(m => m.Name == nameof(OptionExtensions.TryGetValue))
+            .GetParameters()
+            .Single(p => p.IsOut);
+
+        Assert.Contains(
+            parameter.GetCustomAttributesData(),
+            a => a.AttributeType.Name == "MaybeNullWhenAttribute");
+    }
+
+    [Fact]
     public void ToNullable_WithSome_ReturnsValue()
     {
         var option = Option.Some("hello");
@@ -273,7 +298,7 @@ public class OptionTests
     {
         var option = Option.Some(42);
         var sideEffect = 0;
-        var result = option.Tap(x => sideEffect = x);
+        var result = option.TapSome(x => sideEffect = x);
 
         Assert.Equal(42, sideEffect);
         Assert.Same(option, result); // Should return same instance
@@ -284,7 +309,7 @@ public class OptionTests
     {
         var option = Option.None<int>();
         var sideEffect = 0;
-        var result = option.Tap(x => sideEffect = x);
+        var result = option.TapSome(x => sideEffect = x);
 
         Assert.Equal(0, sideEffect);
         Assert.Same(option, result);
@@ -447,7 +472,7 @@ public class OptionTests
     {
         var option = Option.Some(42);
         var sideEffect = 0;
-        var result = await option.TapAsync(async x =>
+        var result = await option.TapSomeAsync(async x =>
         {
             await Task.Delay(1);
             sideEffect = x;
@@ -462,7 +487,7 @@ public class OptionTests
     {
         var option = Option.None<int>();
         var sideEffect = 0;
-        var result = await option.TapAsync(async x =>
+        var result = await option.TapSomeAsync(async x =>
         {
             await Task.Delay(1);
             sideEffect = x;

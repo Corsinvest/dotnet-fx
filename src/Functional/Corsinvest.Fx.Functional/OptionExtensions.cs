@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Corsinvest.Fx.Functional;
 
 /// <summary>
@@ -18,33 +20,33 @@ public static class OptionExtensions
     /// Gets the value or returns a default value if None.
     /// </summary>
     public static T GetValueOr<T>(this Option<T> option, T defaultValue)
-        => option.Match(
-            some => some.Value,
-            none => defaultValue
-        );
+        => option is Option<T>.Some some ? some.Value.Value : defaultValue;
 
     /// <summary>
     /// Gets the value or computes a default value if None.
     /// </summary>
     public static T GetValueOr<T>(this Option<T> option, Func<T> defaultFactory)
-        => option.Match(
-            some => some.Value,
-            none => defaultFactory()
-        );
+        => option is Option<T>.Some some ? some.Value.Value : defaultFactory();
 
     /// <summary>
     /// Gets the value or throws an exception if None.
     /// </summary>
     public static T GetValueOrThrow<T>(this Option<T> option, string? message = null)
-        => option.Match(
-            some => some.Value,
-            none => throw new InvalidOperationException(message ?? "Option has no value")
-        );
+        => option is Option<T>.Some some
+            ? some.Value.Value
+            : throw new InvalidOperationException(message ?? "Option has no value");
 
     /// <summary>
     /// Tries to get the value. Returns true if Some, false if None.
     /// </summary>
-    public static bool TryGetValue<T>(this Option<T> option, out T value)
+    /// <remarks>
+    /// <c>[MaybeNullWhen(false)]</c> tells the nullable analysis that <paramref name="value"/> is
+    /// <see langword="null"/> on the false path, so a caller who reads it without checking the
+    /// <c>bool</c> gets a warning while the checked path stays clean. The attribute is used rather
+    /// than <c>out T?</c> because <typeparamref name="T"/> is unconstrained, where <c>T?</c> would
+    /// mean <see cref="Nullable{T}"/> and change the parameter's type for value types.
+    /// </remarks>
+    public static bool TryGetValue<T>(this Option<T> option, [MaybeNullWhen(false)] out T value)
     {
         if (option.TryGetSome(out var some))
         {
@@ -52,7 +54,7 @@ public static class OptionExtensions
             return true;
         }
 
-        value = default!;
+        value = default;
         return false;
     }
 
@@ -60,10 +62,7 @@ public static class OptionExtensions
     /// Converts the option to a nullable reference.
     /// </summary>
     public static T? ToNullable<T>(this Option<T> option) where T : class
-        => option.Match(
-            some => some.Value,
-            none => (T?)null
-        );
+        => option is Option<T>.Some some ? some.Value.Value : null;
 
     /// <summary>
     /// Converts the option to a nullable struct.
@@ -83,41 +82,46 @@ public static class OptionExtensions
     /// If None, returns None.
     /// </summary>
     public static Option<TResult> Map<T, TResult>(this Option<T> option, Func<T, TResult> mapper)
-        => option.Match(
-            some => Option.Some(mapper(some.Value)),
-            none => Option.None<TResult>()
-        );
+        => option is Option<T>.Some some
+            ? Option.Some(mapper(some.Value.Value))
+            : Option.None<TResult>();
 
     /// <summary>
     /// Maps the value and flattens the result (flatMap/bind).
     /// If None, returns None.
     /// </summary>
     public static Option<TResult> Bind<T, TResult>(this Option<T> option, Func<T, Option<TResult>> binder)
-        => option.Match(
-            some => binder(some.Value),
-            none => Option.None<TResult>()
-        );
+        => option is Option<T>.Some some ? binder(some.Value.Value) : Option.None<TResult>();
 
     /// <summary>
     /// Filters the option based on a predicate.
     /// Returns None if the predicate fails or if already None.
     /// </summary>
     public static Option<T> Filter<T>(this Option<T> option, Func<T, bool> predicate)
-        => option.Match(
-            some => predicate(some.Value) ? option : Option.None<T>(),
-            none => Option.None<T>()
-        );
+        => option is Option<T>.Some some && predicate(some.Value.Value) ? option : Option.None<T>();
 
     /// <summary>
     /// Executes an action on the value if Some, does nothing if None.
     /// Returns the original option for chaining.
     /// </summary>
-    public static Option<T> Tap<T>(this Option<T> option, Action<T> action)
+    /// <remarks>
+    /// Named <c>TapSome</c> rather than <c>Tap</c> for two reasons. It matches
+    /// <see cref="ResultOfExtensions.TapOk{T, E}(ResultOf{T, E}, Action{T})"/>, whose name already
+    /// says which case it runs on; and <c>PipeExtensions.Tap</c> extends every type, so a
+    /// <c>Tap</c> here would be ambiguous with it on an <see cref="Option{T}"/> (CS0121) with
+    /// nothing in the error pointing at the fix. The two mean different things: this one runs only
+    /// on <c>Some</c> and hands the action the value, while <c>Pipe.Tap</c> always runs and hands
+    /// it the <see cref="Option{T}"/> itself.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// option.TapSome(user =&gt; _logger.LogInfo(user.Name));   // only when Some, gets the User
+    /// option.Tap(o =&gt; _logger.LogInfo(o.ToString()));       // always, gets the Option
+    /// </code>
+    /// </example>
+    public static Option<T> TapSome<T>(this Option<T> option, Action<T> action)
     {
-        option.Match(
-            some => action(some.Value),
-            none => { }
-        );
+        if (option is Option<T>.Some some) { action(some.Value.Value); }
         return option;
     }
 
@@ -198,10 +202,7 @@ public static class OptionExtensions
     /// </code>
     /// </example>
     public static Option<T> Flatten<T>(this Option<Option<T>> option)
-        => option.Match(
-            some => some.Value,
-            none => Option.None<T>()
-        );
+        => option is Option<Option<T>>.Some some ? some.Value.Value : Option.None<T>();
 
     /// <summary>
     /// Returns the current option if it's Some, otherwise returns the alternative option.
@@ -253,10 +254,7 @@ public static class OptionExtensions
     /// </code>
     /// </example>
     public static Option<T> OrElse<T>(this Option<T> option, Option<T> alternative)
-        => option.Match(
-            some => option,
-            none => alternative
-        );
+        => option is Option<T>.Some ? option : alternative;
 
     /// <summary>
     /// Returns the current option if it's Some, otherwise computes and returns an alternative option.
@@ -297,10 +295,7 @@ public static class OptionExtensions
     /// </code>
     /// </example>
     public static Option<T> OrElse<T>(this Option<T> option, Func<Option<T>> alternativeFactory)
-        => option.Match(
-            some => option,
-            none => alternativeFactory()
-        );
+        => option is Option<T>.Some ? option : alternativeFactory();
 
     // ============================================
     // LINQ Support
@@ -337,19 +332,17 @@ public static class OptionExtensions
     /// Some becomes Ok, None becomes Error with the specified error.
     /// </summary>
     public static ResultOf<T, E> ToResult<T, E>(this Option<T> option, E error)
-        => option.Match(
-            some => ResultOf.Ok<T, E>(some.Value),
-            none => ResultOf.Fail<T, E>(error)
-        );
+        => option is Option<T>.Some some
+            ? ResultOf.Ok<T, E>(some.Value.Value)
+            : ResultOf.Fail<T, E>(error);
 
     /// <summary>
     /// Converts an Option to a ResultOf with a computed error.
     /// </summary>
     public static ResultOf<T, E> ToResult<T, E>(this Option<T> option, Func<E> errorFactory)
-        => option.Match(
-            some => ResultOf.Ok<T, E>(some.Value),
-            none => ResultOf.Fail<T, E>(errorFactory())
-        );
+        => option is Option<T>.Some some
+            ? ResultOf.Ok<T, E>(some.Value.Value)
+            : ResultOf.Fail<T, E>(errorFactory());
 
     // ============================================
     // Async Extensions
@@ -376,9 +369,10 @@ public static class OptionExtensions
             : Option.None<TResult>();
 
     /// <summary>
-    /// Async version of Tap.
+    /// Async version of <see cref="TapSome{T}(Option{T}, Action{T})"/>; see there for why the name
+    /// says <c>Some</c>.
     /// </summary>
-    public static async Task<Option<T>> TapAsync<T>(this Option<T> option, Func<T, Task> action)
+    public static async Task<Option<T>> TapSomeAsync<T>(this Option<T> option, Func<T, Task> action)
     {
         if (option.IsSome)
         {
