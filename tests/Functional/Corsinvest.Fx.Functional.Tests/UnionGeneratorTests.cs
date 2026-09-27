@@ -1207,6 +1207,101 @@ public class UnionGeneratorTests
     }
 
     // ============================================
+    // Cached wrappers for enum cases
+    // ============================================
+
+    [Fact]
+    public void EnumCase_GetsACachedWrapperPerMember()
+    {
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public enum Severity { Info, Warning, Error }
+            public record Detail(string Text);
+
+            public abstract partial record Problem : IUnion<Severity, Detail>;
+            """);
+
+        // One field per member, and a lookup that returns them.
+        Assert.Contains("_cachedInfo", generated);
+        Assert.Contains("_cachedWarning", generated);
+        Assert.Contains("_cachedError", generated);
+        Assert.Contains("internal static Severity FromValue(global::Severity value)", generated);
+
+        // The record case has no finite set of values, so no cache.
+        Assert.DoesNotContain("_cachedDetail", generated);
+    }
+
+    [Fact]
+    public void EnumCase_ConversionRoutesThroughTheCache()
+    {
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public enum Severity { Info, Warning }
+            public record Detail(string Text);
+
+            public abstract partial record Problem : IUnion<Severity, Detail>;
+            """);
+
+        Assert.Contains("implicit operator Problem(global::Severity value) => Severity.FromValue(value)", generated);
+        Assert.Contains("implicit operator Problem(global::Detail value) => new Detail(value)", generated);
+    }
+
+    [Fact]
+    public void EnumCase_FallsBackToAllocatingForAnUndeclaredValue()
+    {
+        // An enum is not restricted to its declared members - `(Severity)99` is legal C# - so the
+        // lookup needs a discard arm. Caching an undeclared value would mean holding it forever.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public enum Severity { Info, Warning }
+            public record Detail(string Text);
+
+            public abstract partial record Problem : IUnion<Severity, Detail>;
+            """);
+
+        Assert.Contains("_ => new(value),", generated);
+    }
+
+    [Fact]
+    public void EnumCase_WithAliasedMembers_EmitsOneArmPerValue()
+    {
+        // Two names for one value would produce duplicate switch arms, which do not compile.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public enum Severity { Error = 1, Fatal = 1, Info = 2 }
+            public record Detail(string Text);
+
+            public abstract partial record Problem : IUnion<Severity, Detail>;
+            """);
+
+        // One of the two aliases wins; the other must not appear as a second arm.
+        var arms = generated.Split("=> _cached").Length - 1;
+        Assert.Equal(2, arms);
+    }
+
+    [Fact]
+    public void EnumCase_WithTooManyMembers_IsNotCached()
+    {
+        // One object per member held for the process lifetime stops being a good trade.
+        var members = string.Join(", ", Enumerable.Range(0, 100).Select(i => $"M{i}"));
+        var generated = Generate($$"""
+            using Corsinvest.Fx.Functional;
+
+            public enum Wide {{{"{"}} {{members}} {{"}"}}
+            public record Detail(string Text);
+
+            public abstract partial record Problem : IUnion<Wide, Detail>;
+            """);
+
+        Assert.DoesNotContain("_cachedM0", generated);
+        Assert.DoesNotContain("FromValue", generated);
+    }
+
+    // ============================================
     // Shared instances for dataless cases
     // ============================================
 

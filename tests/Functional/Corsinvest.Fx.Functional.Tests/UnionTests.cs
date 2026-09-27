@@ -241,3 +241,111 @@ public class UnionTests
 // Helper types for testing
 public record User(string Name, int Age);
 public record ApiError(int Code, string Message);
+
+public enum Severity { Info, Warning, Error }
+public record Detail(string Text);
+
+/// <summary>A union with an enum case, which the generator caches, and a record case, which it does not.</summary>
+public abstract partial record Problem : IUnion<Severity, Detail>;
+
+/// <summary>
+/// The enum cache is an allocation optimisation, so what these assert is that it changes nothing
+/// else: a cached wrapper has to behave exactly as a freshly constructed one.
+/// </summary>
+public class EnumCaseCacheTests
+{
+    [Fact]
+    public void DeclaredMember_ReusesOneInstance()
+    {
+        Problem a = Severity.Warning;
+        Problem b = Severity.Warning;
+
+        Assert.Same(a, b);
+    }
+
+    [Fact]
+    public void DifferentMembers_AreDifferentInstances()
+    {
+        Problem warning = Severity.Warning;
+        Problem error = Severity.Error;
+
+        Assert.NotSame(warning, error);
+        Assert.NotEqual(warning, error);
+    }
+
+    [Fact]
+    public void CachingIsNotObservable()
+    {
+        Problem cached = Severity.Warning;
+        var fresh = new Problem.Severity(Severity.Warning);
+
+        Assert.Equal(cached, fresh);
+        Assert.True(cached == fresh);
+        Assert.Equal(cached.GetHashCode(), fresh.GetHashCode());
+        Assert.Single(new HashSet<Problem> { cached, fresh });
+        Assert.True(cached.IsSeverity);
+        Assert.True(cached.TryGetSeverity(out var value));
+        Assert.Equal(Severity.Warning, value);
+        Assert.Equal("Warning", cached.Match(s => s.ToString(), d => d.Text));
+    }
+
+    [Fact]
+    public void UndeclaredValue_StillWorks()
+    {
+        // An enum is not restricted to its declared members: (Severity)99 is legal C#, and the
+        // lookup has to fall back to allocating rather than indexing past its table.
+        Problem odd = (Severity)99;
+
+        Assert.True(odd.IsSeverity);
+        Assert.True(odd.TryGetSeverity(out var value));
+        Assert.Equal((Severity)99, value);
+        Assert.NotSame(odd, (Problem)(Severity)99);
+    }
+
+    [Fact]
+    public void NegativeUndeclaredValue_StillWorks()
+    {
+        Problem negative = (Severity)(-5);
+
+        Assert.True(negative.TryGetSeverity(out var value));
+        Assert.Equal((Severity)(-5), value);
+    }
+
+    [Fact]
+    public void RecordCase_IsNotCached()
+    {
+        // No finite set of values to enumerate, so every one is its own object.
+        Problem a = new Detail("x");
+        Problem b = new Detail("x");
+
+        Assert.NotSame(a, b);
+        Assert.Equal(a, b);      // still equal by value
+    }
+
+    [Fact]
+    public void ResultOfWithAnEnumError_IsNotCached()
+    {
+        // The cache keys off the case type being an enum. ResultOf<T, E>'s cases are Ok<T> and
+        // Fail<E> - records whatever E is - so an enum error type does not reach it. Asserted so
+        // the distinction does not get documented the wrong way round again.
+        var a = ResultOf.Fail<int, Severity>(Severity.Warning);
+        var b = ResultOf.Fail<int, Severity>(Severity.Warning);
+
+        Assert.NotSame(a, b);
+        Assert.Equal(a, b);      // still equal by value
+    }
+
+    [Fact]
+    public void SwitchOverACachedCase_Matches()
+    {
+        Problem problem = Severity.Error;
+
+        var described = problem switch
+        {
+            Problem.Severity(var s) => $"severity {s}",
+            Problem.Detail(var d) => d.Text,
+        };
+
+        Assert.Equal("severity Error", described);
+    }
+}

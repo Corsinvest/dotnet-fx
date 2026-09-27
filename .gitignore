@@ -490,3 +490,6 @@ nul
 # Build-timing artefact regenerated on every build by Corsinvest.Fx.CompileTime
 # (see PerformanceCollector.cs). Contains machine-local paths and timestamps.
 CompileTimeReport.md
+
+# Superpowers working notes: plans and specs from assisted sessions, not project docs
+docs/superpowers/
