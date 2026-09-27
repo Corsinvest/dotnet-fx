@@ -210,4 +210,98 @@ public class UnionCoreTypesTests
         Assert.DoesNotContain(constructors, ctor => ctor.IsPublic);
         Assert.All(constructors, ctor => Assert.True(ctor.IsPrivate || ctor.IsFamily));
     }
+
+    // ============================================
+    // None sharing: the allocation is gone, the semantics are not
+    // ============================================
+
+    [Fact]
+    public void Option_None_ReturnsASharedInstance()
+    {
+        // A None carries no data, so one instance can stand in for all of them. This is the
+        // allocation the sharing removes - the assertions below are what make it safe.
+        Assert.Same(Option.None<int>(), Option.None<int>());
+    }
+
+    [Fact]
+    public void Option_None_SharingIsNotObservable()
+    {
+        var a = Option.None<int>();
+        var b = Option.None<int>();
+
+        Assert.Equal(a, b);
+        Assert.True(a == b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+        Assert.Single(new HashSet<Option<int>> { a, b });
+        Assert.True(a.IsNone);
+        Assert.Equal("None", a.Match(some => "Some", none => "None"));
+        Assert.Equal("None", a switch { Option<int>.Some => "Some", Option<int>.None => "None" });
+        Assert.Equal(99, a.GetValueOr(99));
+    }
+
+    [Fact]
+    public void Option_None_IsPerConstructedType()
+    {
+        // Option<int>.None and Option<string>.None are different types, so each gets its own
+        // shared instance. A single shared None across every T would not even typecheck.
+        Assert.NotSame(Option.None<int>(), (object)Option.None<string>());
+    }
+
+    // ============================================
+    // Some(null): the state Option<T> exists to rule out
+    // ============================================
+
+    [Fact]
+    public void Option_Some_RejectsNull()
+    {
+        // A Some holding null reports IsSome while carrying nothing, so the
+        // NullReferenceException Option<T> was meant to prevent surfaces later, inside a Map or
+        // Bind, far from where the null entered.
+        var ex = Assert.Throws<ArgumentNullException>(() => Option.Some<string>(null!));
+        Assert.Equal("value", ex.ParamName);
+    }
+
+    [Fact]
+    public void Option_FromNullable_IsTheWayToHandleAPossibleNull()
+    {
+        Assert.True(Option.FromNullable<string>(null).IsNone);
+        Assert.True(Option.FromNullable("value").IsSome);
+    }
+
+    [Fact]
+    public void Option_Some_AcceptsAValueTypeDefault()
+    {
+        // default(int) is not null - rejecting it would break Some(0).
+        Assert.True(Option.Some(0).IsSome);
+        Assert.True(Option.Some(false).IsSome);
+    }
+
+    [Fact]
+    public void Option_Some_DoesNotBoxAValueType()
+    {
+        // The null check must not cost an allocation on a value type, where it cannot even fail.
+        // ArgumentNullException.ThrowIfNull takes object?, so using it here boxed every Some(42).
+        // `value is null` compares without converting.
+        //
+        // The assertion is relative rather than an absolute byte count: a Debug build allocates
+        // more per call than a Release one (72 B against 48 B here), so a fixed bound would either
+        // fail under Debug or be too loose to catch the regression under Release. Some<string>
+        // runs the same two allocations - the payload and its wrapper - but its null check is a
+        // real reference comparison that never boxes, which makes it the baseline.
+        const int iterations = 20_000;
+
+        for (var i = 0; i < 2_000; i++) { _ = Option.Some(i); _ = Option.Some("x"); }
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < iterations; i++) { _ = Option.Some(i); }
+        var valueType = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < iterations; i++) { _ = Option.Some("x"); }
+        var referenceType = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(valueType <= referenceType,
+            $"Some(int) allocated {valueType / (double)iterations:F0} B/call against "
+            + $"{referenceType / (double)iterations:F0} B/call for Some(string); the excess is a boxed int");
+    }
 }

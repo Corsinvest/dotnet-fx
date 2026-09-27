@@ -1206,6 +1206,114 @@ public class UnionGeneratorTests
         Assert.DoesNotContain(diagnostics, d => d.Id == "CS8602");
     }
 
+    // ============================================
+    // Shared instances for dataless cases
+    // ============================================
+
+    [Fact]
+    public void EmptyRecordCase_GetsASharedInstance()
+    {
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Loading;
+            public record Success(string Body);
+
+            public abstract partial record Response : IUnion<Loading, Success>;
+            """);
+
+        // The dataless case is shared; the one carrying data is not.
+        Assert.Contains("internal static readonly Loading Shared", generated);
+        Assert.DoesNotContain("internal static readonly Success Shared", generated);
+    }
+
+    [Fact]
+    public void EmptyRecordCase_ImplicitConversionUsesTheSharedInstance()
+    {
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Loading;
+            public record Success(string Body);
+
+            public abstract partial record Response : IUnion<Loading, Success>;
+            """);
+
+        Assert.Contains("implicit operator Response(global::Loading value) => Loading.Shared", generated);
+        Assert.Contains("implicit operator Response(global::Success value) => new Success(value)", generated);
+    }
+
+    [Fact]
+    public void PlainEmptyClassCase_IsNotShared()
+    {
+        // A non-record class compares by reference, so `new Empty() == new Empty()` is false.
+        // Handing out one instance would turn that into true - a result the caller can see.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public class Idle;
+            public record Busy(int Load);
+
+            public abstract partial record State : IUnion<Idle, Busy>;
+            """);
+
+        Assert.DoesNotContain("Shared", generated);
+    }
+
+    [Fact]
+    public void EmptyRecordWithMutableField_IsNotShared()
+    {
+        // A writable field means a caller could mutate the shared instance and every other
+        // "instance" would see it.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Tracked { public int Hits; }
+            public record Other(int X);
+
+            public abstract partial record Thing : IUnion<Tracked, Other>;
+            """);
+
+        Assert.DoesNotContain("Shared", generated);
+    }
+
+    [Fact]
+    public void EmptyRecordWithUserConstructor_IsNotShared()
+    {
+        // A hand-written constructor may have side effects - a counter, a log line - which
+        // sharing would run once instead of once per case.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public record Counted
+            {
+                public static int Constructed;
+                public Counted() => Constructed++;
+            }
+            public record Other(int X);
+
+            public abstract partial record Thing : IUnion<Counted, Other>;
+            """);
+
+        Assert.DoesNotContain("Shared", generated);
+    }
+
+    [Fact]
+    public void ValueTypeEmptyCase_IsNotShared()
+    {
+        // A struct is not heap-allocated, so there is no allocation to remove.
+        var generated = Generate("""
+            using Corsinvest.Fx.Functional;
+
+            public struct Empty;
+            public record Other(int X);
+
+            public abstract partial record Thing : IUnion<Empty, Other>;
+            """);
+
+        Assert.DoesNotContain("Shared", generated);
+    }
+
     private static string Generate(string source)
         => string.Join("\n", RunGenerator(source).Select(t => t.ToString()));
 

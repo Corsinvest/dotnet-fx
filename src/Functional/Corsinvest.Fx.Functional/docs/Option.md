@@ -59,6 +59,28 @@ Option<User> user = condition
     : Option.None<User>();
 ```
 
+**`Some` rejects `null`.** A `Some` holding `null` would report `IsSome` while carrying nothing -
+the exact state `Option<T>` exists to rule out - and the `NullReferenceException` it was meant to
+prevent would surface later, inside a `Map` or `Bind`, far from where the null entered. So it
+throws `ArgumentNullException` at the call:
+
+```csharp
+string? maybe = GetMaybeNull();
+
+Option.Some(maybe!);              // ArgumentNullException
+Option.FromNullable(maybe);       // None when null, Some otherwise  <- use this
+```
+
+Nullable analysis warns about the obvious cases, but it is advisory: a `!`, an unannotated
+library, or a nullable-oblivious context all walk straight past it. The check is what makes the
+invariant hold. Value types are unaffected - `Option.Some(0)` and `Option.Some(false)` are `Some`,
+because `default(int)` is not null.
+
+**`None` allocates nothing.** Every `Option.None<T>()` returns one shared instance per `T`, since
+a `None` carries no data and all of them are equal. Record equality is by value, so this is
+invisible: the shared instance behaves exactly as a freshly constructed one through `==`,
+`Equals`, `GetHashCode`, `switch`, patterns and dictionary keys.
+
 ### Pattern Matching
 
 ```csharp
@@ -351,10 +373,10 @@ var firstAdmin = users
 ### Construction
 
 ```csharp
-// Create Some
+// Create Some - throws ArgumentNullException when value is null
 Option<T> Option.Some<T>(T value)
 
-// Create None
+// Create None - returns a shared instance, no allocation
 Option<T> Option.None<T>()
 
 // From nullable
