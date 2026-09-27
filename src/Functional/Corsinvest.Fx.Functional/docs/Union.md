@@ -1142,6 +1142,8 @@ public static class ShapeUnionExtensions
 | Constructing a case wrapper, value already in hand | 24 B |
 | Constructing case value and wrapper together | 48 B |
 | Constructing a dataless case | 0 B |
+| Constructing an enum case, declared member | 0 B |
+| Constructing an enum case, undeclared value | 24 B |
 
 ```bash
 dotnet run -c Release --project benchmarks/Corsinvest.Fx.Benchmarks -- --filter '*UnionMatch*'
@@ -1163,7 +1165,26 @@ are exact, which is why they are the ones quoted.
 
 **A case carrying no data allocates nothing at all.** The generator emits one shared instance per
 dataless case and hands that out instead of allocating, so `Option.None<T>()` is 0 B rather than
-24 B. Record equality is by value, which keeps the sharing invisible: the shared instance and a
+24 B.
+
+**Nor does a case whose type is an `enum`.** An enum's members are known at compile time, so the
+generator emits one wrapper per member and a lookup that returns it: for
+`IUnion<NetworkError, ServerError>` where `NetworkError` is an enum, `Failure f = NetworkError.Timeout`
+costs nothing after the first call. Enum cases are common in the unions this package is used for -
+error kinds, states, log levels - and those are usually the branch a program takes most.
+
+Note that this does **not** reach `ResultOf<T, E>` with an enum error type. Its cases are `Ok<T>` and
+`Fail<E>`, which are records whatever `E` is, so `ResultOf.Fail<int, DbError>(DbError.NotFound)` still
+allocates its 48 B. The cache applies where the case type *is* the enum, which means unions you
+declare yourself.
+
+The lookup is a `switch`, not an array indexed by the underlying value: a sparse enum like
+`{ One = 1, TenThousand = 10000 }` would need 10,001 slots to hold three wrappers, while a `switch`
+costs one field per member whatever the values are. An enum in C# is not restricted to its declared
+members - `(DbError)99` is legal - so anything outside them falls back to allocating, which is both
+the old behaviour and the right one: caching a value nobody declared would mean holding it for the
+lifetime of the process. Above 64 members the cache is not emitted at all, since one object per
+member stops being a good trade against one allocation per call. Record equality is by value, which keeps the sharing invisible: the shared instance and a
 freshly constructed one remain indistinguishable through `==`, `Equals`, `GetHashCode`, a
 `switch`, a pattern with deconstruction, and use as a dictionary key. Sharing applies only where
 it cannot be observed - the case type must be a record (a plain class compares by reference, so

@@ -74,6 +74,20 @@ compares by reference, so sharing would change `==` from `false` to `true`), wit
 to mutate and no hand-written constructor whose side effects would otherwise run once instead of
 once per case.
 
+**A case whose type is an `enum` allocates nothing either.** An enum's members are known at compile
+time, so the generator emits one wrapper per member and a lookup that returns it: given
+`IUnion<NetworkError, ServerError>` with `NetworkError` an enum, `Failure f = NetworkError.Timeout` is
+free after the first call. Error kinds, states and log levels are common enum cases, and they tend to
+be the branch a program takes most.
+
+The lookup is a `switch` rather than an array indexed by the underlying value, so a sparse enum does
+not blow up the table; a value outside the declared members (`(NetworkError)99` is legal C#) falls
+back to allocating rather than being cached forever, and above 64 members no cache is emitted.
+
+This does not reach `ResultOf<T, E>` with an enum error: its cases are `Ok<T>` and `Fail<E>`, records
+whatever `E` is, so those keep allocating. The cache applies where the case type is itself the
+enum.
+
 **`Option.Some` rejects `null`.** A `Some` holding `null` reports `IsSome` while carrying nothing -
 the state `Option<T>` exists to rule out - and the `NullReferenceException` it was meant to prevent
 would surface later, inside a `Map` or `Bind`, far from where the null entered. `Option.FromNullable`

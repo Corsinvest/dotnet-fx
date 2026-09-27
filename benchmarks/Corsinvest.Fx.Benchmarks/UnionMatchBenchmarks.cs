@@ -19,6 +19,12 @@ public record Ready(string Body);
 
 public abstract partial record Response : IUnion<Loading, Ready>;
 
+public enum NetworkError { Timeout, Refused, DnsFailure }
+public record ServerError(int Status);
+
+/// <summary>A union with an enum case, which the generator caches, and a record case, which it does not.</summary>
+public abstract partial record Failure : IUnion<NetworkError, ServerError>;
+
 /// <summary>
 /// What matching a union costs, and what the state-passing <c>Match</c> overloads are for.
 /// </summary>
@@ -105,6 +111,24 @@ public class UnionMatchBenchmarks
 
     [Benchmark, BenchmarkCategory("Construction")]
     public Response Case_WithData() => new Response.Ready(new Ready("body"));
+
+    /// <summary>
+    /// An enum case goes through the generated cache: its members are known at compile time, so a
+    /// wrapper exists per member and the conversion returns it rather than allocating.
+    /// </summary>
+    [Benchmark, BenchmarkCategory("Construction")]
+    public Failure EnumCase_Declared() => NetworkError.Timeout;
+
+    /// <summary>
+    /// An enum is not restricted to its declared members, so this has to keep working - and it
+    /// allocates, since caching a value nobody declared would mean holding it forever.
+    /// </summary>
+    [Benchmark, BenchmarkCategory("Construction")]
+    public Failure EnumCase_Undeclared() => (NetworkError)99;
+
+    /// <summary>A record case for contrast: no finite set of values, so no cache.</summary>
+    [Benchmark, BenchmarkCategory("Construction")]
+    public Failure RecordCase() => new ServerError(500);
 
     private static readonly CreditCard Card = new("4111");
 }

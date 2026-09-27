@@ -670,6 +670,10 @@ namespace Corsinvest.Fx.Functional
                 sb.AppendLine();
                 sb.AppendLine($"        internal static readonly {name} Shared = new(new {qualified[i]}());");
             }
+            else
+            {
+                EmitEnumCache(sb, info.CaseTypes[i], name, qualified[i]);
+            }
 
             sb.AppendLine("    }");
             sb.AppendLine();
@@ -682,10 +686,13 @@ namespace Corsinvest.Fx.Functional
             {
                 // A dataless case converts to its shared instance: the incoming value carries no
                 // information, so wrapping it again would allocate an object equal to the one
-                // already there.
+                // already there. An enum case goes through its cache, which returns a wrapper per
+                // declared member and falls back to allocating for anything else.
                 var rhs = IsShareableEmptyCase(info.CaseTypes[i])
                     ? $"{info.CaseNames[i]}.Shared"
-                    : $"new {info.CaseNames[i]}(value)";
+                    : HasEnumCache(info.CaseTypes[i])
+                        ? $"{info.CaseNames[i]}.FromValue(value)"
+                        : $"new {info.CaseNames[i]}(value)";
 
                 sb.AppendLine($"    public static implicit operator {root}({qualified[i]} value) => {rhs};");
             }
@@ -1276,6 +1283,89 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine("}");
         sb.AppendLine();
     }
+
+    /// <summary>
+    /// Emits a lookup that returns a cached wrapper when the case type is an enum, so a wrapper
+    /// over a value from a known finite set is allocated once rather than per call.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// An enum's members are known at compile time, which is what makes this possible: the
+    /// wrappers are created in a static field each and returned by a <c>switch</c>. The alternative
+    /// - an array indexed by the underlying value - breaks on a sparse enum, where
+    /// <c>{ One = 1, TenThousand = 10000 }</c> would allocate 10,001 slots to hold three wrappers.
+    /// A <c>switch</c> over the declared members costs one field per member whatever the values are,
+    /// and the JIT compiles it to a jump table.
+    /// </para>
+    /// <para>
+    /// The fallback matters: an enum in C# is not restricted to its declared members, so
+    /// <c>(Severity)99</c> and <c>(Severity)(-5)</c> are both legal and have to keep working. The
+    /// discard arm allocates for them, which is the old behaviour and the right one - caching a
+    /// value nobody declared would mean holding it forever.
+    /// </para>
+    /// <para>
+    /// Nothing is observable either way. Record equality is by value, so a cached wrapper and a
+    /// freshly constructed one compare equal, hash the same, and match the same patterns. The cost
+    /// is one object per member, created when the wrapper type is first touched; a flags enum or a
+    /// generated one with hundreds of members pays that in full, which is why
+    /// <see cref="MaxCachedEnumMembers"/> caps it.
+    /// </para>
+    /// </remarks>
+    private static void EmitEnumCache(StringBuilder sb, ITypeSymbol caseType, string name, string qualified)
+    {
+        var members = CacheableEnumMembers(caseType);
+        if (members.IsEmpty) { return; }
+
+        sb.AppendLine();
+        foreach (var member in members)
+        {
+            sb.AppendLine($"        private static readonly {name} _cached{member} = new({qualified}.{member});");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine($"        internal static {name} FromValue({qualified} value)");
+        sb.AppendLine("            => value switch");
+        sb.AppendLine("            {");
+        foreach (var member in members)
+        {
+            sb.AppendLine($"                {qualified}.{member} => _cached{member},");
+        }
+        sb.AppendLine("                _ => new(value),");
+        sb.AppendLine("            };");
+    }
+
+    /// <summary>
+    /// The enum members worth caching for <paramref name="caseType"/>, or empty when it is not an
+    /// enum or has too many members to be worth it. Shared by the emitter and by the implicit
+    /// conversion, so the two cannot disagree about whether a cache exists.
+    /// </summary>
+    private static ImmutableArray<string> CacheableEnumMembers(ITypeSymbol caseType)
+    {
+        if (caseType.TypeKind != TypeKind.Enum) { return ImmutableArray<string>.Empty; }
+
+        // Grouped by constant value: an enum may give one value two names (`Error = 1, Fatal = 1`),
+        // and duplicate switch arms would not compile.
+        var members = caseType.GetMembers()
+                              .OfType<IFieldSymbol>()
+                              .Where(f => f.HasConstantValue && f.ConstantValue is not null)
+                              .GroupBy(f => f.ConstantValue!)
+                              .Select(g => g.First().Name)
+                              .ToImmutableArray();
+
+        return members.Length is 0 || members.Length > MaxCachedEnumMembers
+            ? ImmutableArray<string>.Empty
+            : members;
+    }
+
+    /// <summary>True when <paramref name="caseType"/> gets a cache, so callers can route to it.</summary>
+    private static bool HasEnumCache(ITypeSymbol caseType) => !CacheableEnumMembers(caseType).IsEmpty;
+
+    /// <summary>
+    /// Above this many members the cache is not emitted: one object per member, held for the
+    /// lifetime of the process, stops being a good trade against one allocation per call - and a
+    /// flags enum or a generated one can run to hundreds.
+    /// </summary>
+    private const int MaxCachedEnumMembers = 64;
 
     /// <summary>
     /// True when every instance of <paramref name="caseType"/> is indistinguishable from every
