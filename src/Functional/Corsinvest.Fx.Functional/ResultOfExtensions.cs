@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Corsinvest.Fx.Functional;
 
 /// <summary>
@@ -18,19 +20,17 @@ public static class ResultOfExtensions
     /// LINQ Select (functor map)
     /// </summary>
     public static ResultOf<U, E> Select<T, U, E>(this ResultOf<T, E> result, Func<T, U> selector)
-        => result.Match(
-            ok => ResultOf.Ok<U, E>(selector(ok.Value)),
-            error => ResultOf.Fail<U, E>(error.ErrorValue)
-        );
+        => result is ResultOf<T, E>.Ok ok
+            ? ResultOf.Ok<U, E>(selector(ok.Value.Value))
+            : ResultOf.Fail<U, E>(((ResultOf<T, E>.Fail)result).Value.ErrorValue);
 
     /// <summary>
     /// LINQ SelectMany (monadic bind)
     /// </summary>
     public static ResultOf<U, E> SelectMany<T, U, E>(this ResultOf<T, E> result, Func<T, ResultOf<U, E>> selector)
-        => result.Match(
-            ok => selector(ok.Value),
-            error => ResultOf.Fail<U, E>(error.ErrorValue)
-        );
+        => result is ResultOf<T, E>.Ok ok
+            ? selector(ok.Value.Value)
+            : ResultOf.Fail<U, E>(((ResultOf<T, E>.Fail)result).Value.ErrorValue);
 
     /// <summary>
     /// LINQ SelectMany with projection (monadic bind + map)
@@ -39,13 +39,19 @@ public static class ResultOfExtensions
         this ResultOf<T, E> result,
         Func<T, ResultOf<U, E>> selector,
         Func<T, U, V> projector)
-        => result.Match(
-            ok => selector(ok.Value).Match(
-                okU => ResultOf.Ok<V, E>(projector(ok.Value, okU.Value)),
-                error => ResultOf.Fail<V, E>(error.ErrorValue)
-            ),
-            error => ResultOf.Fail<V, E>(error.ErrorValue)
-        );
+    {
+        if (result is not ResultOf<T, E>.Ok ok)
+        {
+            return ResultOf.Fail<V, E>(((ResultOf<T, E>.Fail)result).Value.ErrorValue);
+        }
+
+        var value = ok.Value.Value;
+        var selected = selector(value);
+
+        return selected is ResultOf<U, E>.Ok okU
+            ? ResultOf.Ok<V, E>(projector(value, okU.Value.Value))
+            : ResultOf.Fail<V, E>(((ResultOf<U, E>.Fail)selected).Value.ErrorValue);
+    }
 
     // ============================================
     // Functional Helpers
@@ -67,10 +73,9 @@ public static class ResultOfExtensions
     /// Map over the error value
     /// </summary>
     public static ResultOf<T, EOut> MapError<T, EIn, EOut>(this ResultOf<T, EIn> result, Func<EIn, EOut> errorMapper)
-        => result.Match(
-            ok => ResultOf.Ok<T, EOut>(ok.Value),
-            error => ResultOf.Fail<T, EOut>(errorMapper(error.ErrorValue))
-        );
+        => result is ResultOf<T, EIn>.Ok ok
+            ? ResultOf.Ok<T, EOut>(ok.Value.Value)
+            : ResultOf.Fail<T, EOut>(errorMapper(((ResultOf<T, EIn>.Fail)result).Value.ErrorValue));
 
     /// <summary>
     /// Execute side effect if result is Ok (returns the original result)
@@ -116,12 +121,9 @@ public static class ResultOfExtensions
     /// Validate the success value with a predicate
     /// </summary>
     public static ResultOf<T, E> Ensure<T, E>(this ResultOf<T, E> result, Func<T, bool> predicate, E error)
-        => result.Match(
-            ok => predicate(ok.Value)
-                ? result
-                : ResultOf.Fail<T, E>(error),
-            _ => result
-        );
+        => result is ResultOf<T, E>.Ok ok && !predicate(ok.Value.Value)
+            ? ResultOf.Fail<T, E>(error)
+            : result;
 
     // ============================================
     // Unwrapping / Default Values
@@ -131,38 +133,33 @@ public static class ResultOfExtensions
     /// Get the value or return a default
     /// </summary>
     public static T GetValueOr<T, E>(this ResultOf<T, E> result, T defaultValue)
-        => result.Match(
-            ok => ok.Value,
-            _ => defaultValue
-        );
+        => result is ResultOf<T, E>.Ok ok ? ok.Value.Value : defaultValue;
 
     /// <summary>
     /// Get the value or compute a default from error
     /// </summary>
     public static T GetValueOr<T, E>(this ResultOf<T, E> result, Func<E, T> errorToValue)
-        => result.Match(
-            ok => ok.Value,
-            error => errorToValue(error.ErrorValue)
-        );
+        => result is ResultOf<T, E>.Ok ok
+            ? ok.Value.Value
+            : errorToValue(((ResultOf<T, E>.Fail)result).Value.ErrorValue);
 
     /// <summary>
     /// Get the value or return the default value for type T (null for reference types, 0 for int, false for bool, etc.)
     /// </summary>
     public static T? GetValueOrDefault<T, E>(this ResultOf<T, E> result)
-        => result.Match(
-            ok => ok.Value,
-            _ => default(T)
-        );
+        => result is ResultOf<T, E>.Ok ok ? ok.Value.Value : default;
 
     /// <summary>
     /// Get the value or throw an exception
     /// </summary>
     public static T GetValueOrThrow<T, E>(this ResultOf<T, E> result, Func<E, Exception>? exceptionFactory = null)
-        => result.Match(
-            ok => ok.Value,
-            error => throw (exceptionFactory?.Invoke(error.ErrorValue)
-                            ?? new InvalidOperationException($"Result is in error state: {error.ErrorValue}"))
-        );
+    {
+        if (result is ResultOf<T, E>.Ok ok) { return ok.Value.Value; }
+
+        var error = ((ResultOf<T, E>.Fail)result).Value.ErrorValue;
+        throw exceptionFactory?.Invoke(error)
+              ?? new InvalidOperationException($"Result is in error state: {error}");
+    }
 
     // ============================================
     // Conversion Helpers
@@ -171,14 +168,29 @@ public static class ResultOfExtensions
     /// <summary>
     /// Try to get the value (similar to Dictionary.TryGetValue pattern)
     /// </summary>
-    public static bool TryGetValue<T, E>(this ResultOf<T, E> result, out T value)
+    /// <remarks>
+    /// <para>
+    /// <c>[MaybeNullWhen(false)]</c> is what makes the nullable analysis honest here: on the false
+    /// path <paramref name="value"/> really is <see langword="null"/> for a reference type, and
+    /// saying so lets the compiler warn a caller who reads it without checking the <c>bool</c>,
+    /// while leaving the checked path warning-free. A plain <c>out T</c> assigned <c>default!</c>
+    /// claimed "never null" on both paths, including the one that is genuinely wrong.
+    /// </para>
+    /// <para>
+    /// The attribute is used rather than <c>out T?</c> because <typeparamref name="T"/> is
+    /// unconstrained: <c>T?</c> would mean <see cref="Nullable{T}"/> for a value type and change
+    /// the parameter's type, breaking every existing <c>out int</c> caller. A value type has no
+    /// null to warn about, and <c>MaybeNullWhen</c> leaves it alone.
+    /// </para>
+    /// </remarks>
+    public static bool TryGetValue<T, E>(this ResultOf<T, E> result, [MaybeNullWhen(false)] out T value)
     {
         if (result.TryGetOk(out var ok))
         {
             value = ok.Value;
             return true;
         }
-        value = default!;
+        value = default;
         return false;
     }
 
@@ -215,10 +227,9 @@ public static class ResultOfExtensions
     /// </code>
     /// </example>
     public static ResultOf<T, List<E>> WithError<T, E>(this ResultOf<T, List<E>> result, E error)
-        => result.Match(
-            ok => throw new InvalidOperationException("Cannot add error to a successful result. Use CollectErrors for validation."),
-            errorResult => ResultOf.Fail<T, List<E>>([.. errorResult.ErrorValue, error])
-        );
+        => result is ResultOf<T, List<E>>.Fail fail
+            ? ResultOf.Fail<T, List<E>>([.. fail.Value.ErrorValue, error])
+            : throw new InvalidOperationException("Cannot add error to a successful result. Use CollectErrors for validation.");
 
     // ============================================
     // Async Map
@@ -619,10 +630,9 @@ public static class ResultOfExtensions
     /// </code>
     /// </example>
     public static T Recover<T, E>(this ResultOf<T, E> result, Func<E, T> recovery)
-        => result.Match(
-            ok => ok.Value,
-            error => recovery(error.ErrorValue)
-        );
+        => result is ResultOf<T, E>.Ok ok
+            ? ok.Value.Value
+            : recovery(((ResultOf<T, E>.Fail)result).Value.ErrorValue);
 
     /// <summary>
     /// Async version of Recover. Recovers from a failure using an async recovery function.

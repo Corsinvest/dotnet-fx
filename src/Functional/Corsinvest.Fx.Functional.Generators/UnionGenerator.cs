@@ -658,6 +658,19 @@ namespace Corsinvest.Fx.Functional
             sb.AppendLine($"    public sealed partial record {name}({qualified[i]} Value) : {root}");
             sb.AppendLine("    {");
             sb.AppendLine($"        public override string ToString() => {body};");
+
+            // A case carrying no data has nothing to tell one instance from another, so every
+            // `new` of it allocates a distinct object that compares equal to all the others. One
+            // shared instance removes that allocation - for Option<T>.None, on every call - and
+            // stays invisible: record equality is by value, so the shared wrapper and a freshly
+            // constructed one remain indistinguishable through ==, Equals, GetHashCode, a switch,
+            // a pattern with deconstruction, and use as a dictionary key.
+            if (IsShareableEmptyCase(info.CaseTypes[i]))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"        internal static readonly {name} Shared = new(new {qualified[i]}());");
+            }
+
             sb.AppendLine("    }");
             sb.AppendLine();
         }
@@ -667,7 +680,14 @@ namespace Corsinvest.Fx.Functional
         {
             for (var i = 0; i < info.CaseNames.Length; i++)
             {
-                sb.AppendLine($"    public static implicit operator {root}({qualified[i]} value) => new {info.CaseNames[i]}(value);");
+                // A dataless case converts to its shared instance: the incoming value carries no
+                // information, so wrapping it again would allocate an object equal to the one
+                // already there.
+                var rhs = IsShareableEmptyCase(info.CaseTypes[i])
+                    ? $"{info.CaseNames[i]}.Shared"
+                    : $"new {info.CaseNames[i]}(value)";
+
+                sb.AppendLine($"    public static implicit operator {root}({qualified[i]} value) => {rhs};");
             }
             sb.AppendLine();
         }
@@ -1257,4 +1277,59 @@ namespace Corsinvest.Fx.Functional
         sb.AppendLine();
     }
 
+    /// <summary>
+    /// True when every instance of <paramref name="caseType"/> is indistinguishable from every
+    /// other, so one shared wrapper can stand in for all of them.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The conditions are what makes sharing unobservable, and each one rules out a real failure:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>
+    /// <description>
+    /// <strong>A record.</strong> A plain empty class compares by reference, so
+    /// <c>new Empty() == new Empty()</c> is <c>false</c> - handing out one instance would turn
+    /// that into <c>true</c> and change a result the caller can see. A record compares by value,
+    /// where two empty instances are already equal.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <strong>No instance state.</strong> Nothing to differ on, and nothing a caller could mutate
+    /// through the shared reference. A single mutable field is enough to break this: writing to it
+    /// on one "instance" would be seen by every other.
+    /// </description>
+    /// </item>
+    /// <item>
+    /// <description>
+    /// <strong>No user-written constructor.</strong> A constructor can have side effects - a
+    /// counter, a log line, a registration - and sharing would run it once instead of once per
+    /// case. The implicit parameterless constructor of an empty record does nothing.
+    /// </description>
+    /// </item>
+    /// </list>
+    /// <para>
+    /// Value types are excluded: they are not allocated on the heap, so there is nothing to save,
+    /// and a static field would add a copy rather than remove an allocation.
+    /// </para>
+    /// </remarks>
+    private static bool IsShareableEmptyCase(ITypeSymbol caseType)
+    {
+        if (caseType is not INamedTypeSymbol named) { return false; }
+        if (!named.IsRecord || named.IsValueType) { return false; }
+
+        // Any instance state at all - a property, a field, a positional parameter - means two
+        // instances can differ. Only user-written members count: every record also carries an
+        // implicit `EqualityContract` property, which is part of the record machinery rather than
+        // state, and treating it as state would rule out every empty record there is.
+        var hasInstanceState = named.GetMembers().Any(m => m is IPropertySymbol { IsStatic: false, IsImplicitlyDeclared: false }
+                                                        or IFieldSymbol { IsStatic: false, IsImplicitlyDeclared: false });
+        if (hasInstanceState) { return false; }
+
+        // A compiler-supplied constructor is inert; a user-written one may not be. The copy
+        // constructor a record always declares is implicitly declared, so it does not count.
+        var hasUserConstructor = named.InstanceConstructors.Any(c => !c.IsImplicitlyDeclared);
+        return !hasUserConstructor;
+    }
 }

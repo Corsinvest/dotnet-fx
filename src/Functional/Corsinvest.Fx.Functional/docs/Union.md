@@ -108,9 +108,18 @@ decimal Fee(PaymentMethod method, decimal rate) => method.Match(
 );
 ```
 
-Measured on a two-case union, per call: **152 B and 818 ms** for the capturing form over 20M
-iterations, against **0 B and 85 ms** for the state-passing one. Pass a tuple or a small record when
-a handler needs more than one value.
+Measured per call, on .NET 8: **160 B** for the capturing form on a two-case union against **0 B**
+for the state-passing one. The figure grows with the number of handlers, since each one is its own
+delegate - a three-case union costs **224 B** captured, still 0 B passed. Pass a tuple or a small
+record when a handler needs more than one value.
+
+The benchmarks behind those numbers are in
+[`benchmarks/`](../../../../benchmarks/Corsinvest.Fx.Benchmarks/UnionMatchBenchmarks.cs), so they
+can be re-run rather than taken on trust:
+
+```bash
+dotnet run -c Release --project benchmarks/Corsinvest.Fx.Benchmarks -- --filter '*UnionMatch*'
+```
 
 The plain form stays the right default - it reads better, and a handler that captures nothing
 (`x => x.Radius`) allocates nothing either, because the compiler caches a single delegate for it.
@@ -167,7 +176,9 @@ enums, `string`, `int` and other primitives, arrays, closed generics (`List<T>`,
 never appear as an attribute type argument (`CS8970`) but are an ordinary type argument to an
 interface. Value-type cases are held in a typed field on their wrapper - a
 `struct Money { public decimal Amount; }` case ends up as `Root.Money.Value` of type `Money`, not
-`object` - so **nothing is boxed**.
+`object` - so **nothing is boxed**. (The wrapper holding it is still a heap allocation, so a
+value-type case costs the same 24 bytes as any other; what typed storage buys is that reading
+`Value` needs no unboxing cast, and a large struct is not copied through `object`.)
 
 One shape is rejected: an **interface** case type, reported as `UNION012` - see below.
 
@@ -219,66 +230,7 @@ public record Cat(string Name);
 public abstract partial record Pet : IUnion<IShape, Cat>;
 ```
 
-## Migrating from 1.x
-
-Version 2.0.0 removes the `[Union]`/`[Union<T1..T8>]` attributes entirely - `IUnion<T1..T8>`
-replaces them, not alongside them. There is no compatibility shim: a 1.x project upgrading to
-2.0.0 gets compile errors wherever `[Union]` or `[Union<...>]` appears, with nothing in the error
-text pointing at what replaced it. This section is that pointer.
-
-### Plain unions
-
-Change the case types from nested `partial record`s to ordinary standalone types, drop the
-attribute, and move its type arguments (if it had any) into a base-list `IUnion<...>`:
-
-```csharp
-// 1.x
-[Union]
-public partial record Pet
-{
-    public partial record Cat(string Name, int Lives);
-    public partial record Dog(string Name);
-}
-
-// 2.0.0
-public record Cat(string Name, int Lives);
-public record Dog(string Name);
-
-public abstract partial record Pet : IUnion<Cat, Dog>;
-```
-
-The root must now be written `public abstract partial record` - `abstract` was implicit before
-(the generator added it silently); under `IUnion<...>` a root missing either keyword is reported
-as **UNION014**, not silently corrected.
-
-Everything the generator produces - `Match`/`MatchAsync`, `Is{Case}`, `TryGet{Case}`, the implicit
-conversions, the wrapper types themselves (`Pet.Cat`, `Pet.Dog`) - keeps the same shape. Call sites
-that only use that surface do not change at all.
-
-### `Option<T>` and `ResultOf<T, E>`
-
-Both are still `IUnion<...>` roots under the hood (`Option<T> : IUnion<Some<T>, None>`,
-`ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>`), and neither one's public API moved. If your code only
-calls `Match`, `MatchAsync`, `Some`/`None`, `Ok`/`Fail`, `Map`, `Bind`, or switches on the wrapper
-types, **there is nothing to change** - those call sites compile unmodified against 2.0.0. The
-break only reaches code that declared its *own* `[Union]` types, not code that merely consumed
-`Option<T>`/`ResultOf<T, E>`.
-
-### Keeping a wrapper's name stable
-
-If a 1.x case type's nested name mattered to callers (`Pet.Cat` used explicitly, e.g. in a
-`catch`-style pattern or a public signature), `[UnionCaseName<T>]` pins the 2.0.0 wrapper name to
-match:
-
-```csharp
-[UnionCaseName<Cat>("Cat")]
-public abstract partial record Pet : IUnion<Cat, Dog>;
-```
-
-This is also the mechanism for resolving a name collision the default rules can't - see
-[Wrapper names](#wrapper-names) below.
-
-### Wrapper names
+## Wrapper names
 
 Each case gets a wrapper name, derived from the case type unless overridden. The rules, checked
 in order:
@@ -560,11 +512,14 @@ The compiler then *requires* a `null` arm in every switch. With this package's g
 hierarchy, the root's private constructor and sealed cases make that state unrepresentable - there
 is no `null` arm to write.
 
-**No boxing.** Because `Value` is `object?`, a value-type case is boxed on assignment - the docs
-are explicit that the generated form "always boxes value-type cases". A `union IntOrString(int, string)`
-allocates 24 bytes on the heap to hold a 4-byte `int`, so the struct meant to avoid allocation
-allocates anyway. This package's cases hold their data in typed fields, with no boxing at any
-point - true for a value-type case exactly as much as a reference-type one.
+**No boxing** - though on a value-type case the two end up level, and it is worth being precise
+about why. Because `Value` is `object?`, C# 15 boxes a value-type case on assignment: a
+`union IntOrString(int, string)` allocates 24 bytes on the heap to hold a 4-byte `int`, so the
+struct meant to avoid allocation allocates anyway. This package's cases hold their data in typed
+fields and never box - but constructing the wrapper is itself a 24-byte allocation, so *measured
+per operation the two come out the same* (24 B each). The difference shows up on a reference-type
+case, where C# 15 allocates nothing and this package still allocates its wrapper, and on a
+dataless case, where the shared instance brings this package to zero.
 
 (C# 15 offers a way out, but you have to build it yourself: a hand-written union implementing the
 *non-boxing access pattern* - `HasValue` plus a `TryGetValue` per case, over your own tag and
@@ -598,7 +553,9 @@ package reference and no build-time source generator.
 | | This package (`IUnion<...>`) | C# 15 `union` |
 | --- | --- | --- |
 | Invalid state | **impossible** | `default` has a null `Value` |
-| Boxing of value-type cases | **never** | always (unless you hand-write a non-boxing union) |
+| Allocation, reference-type case | 24 B (the wrapper) | 0 B |
+| Allocation, value-type case | 24 B (the wrapper) | 24 B (boxed into `object?`) |
+| Allocation, dataless case | **0 B** (shared instance) | 0 B |
 | Indirection to reach the data | 1 hop | 2 hops (`Value`, then the object) |
 | Cases usable as types | ✅ the standalone case type, plus `Root.Case` | ✅ standalone types |
 | Same type in several unions | ✅ `Cat` can be a case of `Pet` and of `Animal` at once | ✅ |
@@ -1170,14 +1127,54 @@ public static class ShapeUnionExtensions
 - ✅ **No reflection** - All matching is compile-time type checks
 - ✅ **Efficient dispatch** - Both `Match()` and `switch` compile to the same type checks
 - ✅ **Inlining** - JIT can inline simple match expressions
-- ℹ️ **Allocation** - Each case wrapper is a record, so constructing one is a heap allocation
-  (~24 bytes). These are short-lived gen0 objects, which the .NET GC handles very cheaply. Long
-  `Map`/`Bind` chains allocate one intermediate per step; that only matters in measured hot paths.
 
-Cases are reference types by design: it is what makes the hierarchy closed and keeps an
-invalid union state unrepresentable. A struct-based union cannot inherit, so it would have
-to carry every case's fields at once (larger, copied on every call) or box its payload into
-an `object?` (which allocates anyway).
+**Matching allocates nothing.** Allocations per operation on .NET 8, from
+[`UnionMatchBenchmarks`](../../../../benchmarks/Corsinvest.Fx.Benchmarks/UnionMatchBenchmarks.cs):
+
+| | allocated |
+| --- | --- |
+| `switch` on an existing union | 0 B |
+| `Is{Case}` / `TryGet{Case}` | 0 B |
+| `Match` with non-capturing handlers | 0 B |
+| `Match` state-passing (`static` handlers) | 0 B |
+| `Match` with capturing handlers, two cases | 160 B |
+| `Match` with capturing handlers, three cases | 192 B |
+| Constructing a case wrapper, value already in hand | 24 B |
+| Constructing case value and wrapper together | 48 B |
+| Constructing a dataless case | 0 B |
+
+```bash
+dotnet run -c Release --project benchmarks/Corsinvest.Fx.Benchmarks -- --filter '*UnionMatch*'
+```
+
+Three things to read off that table. Matching a union does not allocate *by itself* - the cost
+comes from the handlers, and only when they capture (see
+[Matching without capturing](#matching-without-capturing)). The wrapper is one object of its own,
+so `new Pet.Cat(cat)` over an existing `cat` costs 24 bytes while
+`new Pet.Cat(new Cat("Whiskers"))` costs 48 for the two together. And it is paid once, not per
+match: match it ten times and it is still 24 bytes, not 240. These are short-lived gen0 objects,
+which the GC handles cheaply; long `Map`/`Bind` chains allocate one intermediate per step, which
+matters only in a measured hot path.
+
+The timings are deliberately left out. These operations run in single-digit nanoseconds, where the
+measurement error of a short benchmark job exceeds the value being measured - a ratio column that
+reads "57x" on an operation that allocates nothing is noise, not a finding. The allocation counts
+are exact, which is why they are the ones quoted.
+
+**A case carrying no data allocates nothing at all.** The generator emits one shared instance per
+dataless case and hands that out instead of allocating, so `Option.None<T>()` is 0 B rather than
+24 B. Record equality is by value, which keeps the sharing invisible: the shared instance and a
+freshly constructed one remain indistinguishable through `==`, `Equals`, `GetHashCode`, a
+`switch`, a pattern with deconstruction, and use as a dictionary key. Sharing applies only where
+it cannot be observed - the case type must be a record (a plain class compares by reference, so
+sharing would change `==` from `false` to `true`), with no instance state to mutate and no
+hand-written constructor whose side effects would run once instead of once per case.
+
+Cases are reference types by design: it is what makes the hierarchy closed and keeps an invalid
+union state unrepresentable. A struct-based union cannot inherit, so it would have to carry every
+case's fields at once - measured at 24 bytes for two cases and 72 for eight, copied on every call,
+against a constant 8-byte reference here - or box its payload into an `object?`, which allocates
+anyway.
 
 ## Diagnostics
 

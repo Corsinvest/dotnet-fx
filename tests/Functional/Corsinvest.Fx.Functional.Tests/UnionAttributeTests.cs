@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-using System.Reflection;
-
 namespace Corsinvest.Fx.Functional.Tests;
 
 /// <summary>

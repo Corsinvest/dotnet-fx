@@ -3,7 +3,6 @@
   <PropertyGroup>
     <!-- Package Information -->
     <PackageId>Corsinvest.Fx.Unsafe</PackageId>
-    <Version>0.1.0-alpha</Version>
     <Title>Unsafe and Low-level Operations for C#</Title>
     <Description>⚠️ EXPERIMENTAL: Low-level unsafe operations including inline assembly wrappers, SIMD intrinsics helpers, and direct memory manipulation for performance-critical code.</Description>
     <PackageTags>unsafe;inline-asm;assembly;simd;intrinsics;performance;low-level;hardware;experimental;alpha</PackageTags>

@@ -409,7 +409,20 @@ public static class ResultOf
     /// </code>
     /// </example>
     public static ResultOf<Unit, Exception> Try(Action action)
-        => Try(() => { action(); return Unit.Value; });
+    {
+        // Written out rather than delegating to Try(Func<T>) through a lambda: that lambda
+        // captures `action`, so every call allocated a display class and a delegate on top of
+        // the result itself - 136 B against 48 B for the Func overload.
+        try
+        {
+            action();
+            return Ok<Unit, Exception>(Unit.Value);
+        }
+        catch (Exception ex)
+        {
+            return Fail<Unit, Exception>(ex);
+        }
+    }
 
     /// <summary>
     /// Runs an action that produces no value, mapping any exception to a custom error type.
@@ -419,7 +432,18 @@ public static class ResultOf
     /// <param name="errorMapper">Converts the exception into the error type</param>
     /// <returns>Ok(<see cref="Unit"/>) if the action returned, Fail with the mapped error otherwise</returns>
     public static ResultOf<Unit, E> Try<E>(Action action, Func<Exception, E> errorMapper)
-        => Try(() => { action(); return Unit.Value; }, errorMapper);
+    {
+        // See Try(Action) for why this is written out rather than wrapping a lambda.
+        try
+        {
+            action();
+            return Ok<Unit, E>(Unit.Value);
+        }
+        catch (Exception ex)
+        {
+            return Fail<Unit, E>(errorMapper(ex));
+        }
+    }
 
     /// <summary>
     /// Runs an async action that produces no value, capturing any exception.
@@ -427,7 +451,19 @@ public static class ResultOf
     /// <param name="action">The async action to run</param>
     /// <returns>Ok(<see cref="Unit"/>) if the action completed, Fail with the exception otherwise</returns>
     public static async Task<ResultOf<Unit, Exception>> TryAsync(Func<Task> action)
-        => await TryAsync(async () => { await action(); return Unit.Value; });
+    {
+        // See Try(Action): delegating through a lambda captures `action`, and here it also spins
+        // up a second async state machine for the wrapper.
+        try
+        {
+            await action();
+            return Ok<Unit, Exception>(Unit.Value);
+        }
+        catch (Exception ex)
+        {
+            return Fail<Unit, Exception>(ex);
+        }
+    }
 
     /// <summary>
     /// Runs an async action that produces no value, mapping any exception to a custom error type.
@@ -437,7 +473,18 @@ public static class ResultOf
     /// <param name="errorMapper">Converts the exception into the error type</param>
     /// <returns>Ok(<see cref="Unit"/>) if the action completed, Fail with the mapped error otherwise</returns>
     public static async Task<ResultOf<Unit, E>> TryAsync<E>(Func<Task> action, Func<Exception, E> errorMapper)
-        => await TryAsync(async () => { await action(); return Unit.Value; }, errorMapper);
+    {
+        // See TryAsync(Func<Task>).
+        try
+        {
+            await action();
+            return Ok<Unit, E>(Unit.Value);
+        }
+        catch (Exception ex)
+        {
+            return Fail<Unit, E>(errorMapper(ex));
+        }
+    }
 
     // ============================================
     // Combining Results
@@ -476,20 +523,21 @@ public static class ResultOf
     {
         if (results.Length == 0) { return Ok<T[], List<E>>([]); }
 
-        var errors = new List<E>();
-        var values = new List<T>();
+        // TryGet rather than Match: the Match handlers close over both lists, so they would cost
+        // a display class plus two delegates on every element. The error list stays null until
+        // something fails, and the values go straight into a right-sized array.
+        var values = new T[results.Length];
+        List<E>? errors = null;
 
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
-            result.Match(
-                ok => values.Add(ok.Value),
-                error => errors.Add(error.ErrorValue)
-            );
+            if (results[i].TryGetValue(out var value)) { values[i] = value; }
+            else if (results[i].TryGetFail(out var fail)) { (errors ??= []).Add(fail.ErrorValue); }
         }
 
-        return errors.Count > 0
+        return errors is not null
             ? Fail<T[], List<E>>(errors)
-            : Ok<T[], List<E>>([.. values]);
+            : Ok<T[], List<E>>(values);
     }
 
     /// <summary>
@@ -523,25 +571,22 @@ public static class ResultOf
     public static ResultOf<(T1, T2), List<E>> Combine<T1, T2, E>(ResultOf<T1, E> result1,
                                                                  ResultOf<T2, E> result2)
     {
-        var errors = new List<E>();
+        // The happy path allocates no list: it is only created once something has actually
+        // failed. Errors are read with TryGetFail rather than Match, whose handlers would close
+        // over `errors` and cost a display class plus two delegates per call.
+        List<E>? errors = null;
 
-        var hasValue1 = result1.TryGetValue(out var value1);
-        var hasValue2 = result2.TryGetValue(out var value2);
+        var ok1 = result1.TryGetValue(out var value1);
+        if (!ok1 && result1.TryGetFail(out var fail1)) { (errors ??= []).Add(fail1.ErrorValue); }
 
-        if (!hasValue1)
-        {
-            result1.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
+        var ok2 = result2.TryGetValue(out var value2);
+        if (!ok2 && result2.TryGetFail(out var fail2)) { (errors ??= []).Add(fail2.ErrorValue); }
 
-        if (!hasValue2)
-        {
-            result2.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
-
-
-        return errors.Count > 0
+        // Reaching the Ok path means both TryGetValue calls returned true, so both values are
+        // present; the nullable analysis cannot follow that through `errors`, hence the `!`.
+        return errors is not null
             ? Fail<(T1, T2), List<E>>(errors)
-            : Ok<(T1, T2), List<E>>((value1, value2));
+            : Ok<(T1, T2), List<E>>((value1!, value2!));
     }
 
     /// <summary>
@@ -551,31 +596,21 @@ public static class ResultOf
                                                                          ResultOf<T2, E> result2,
                                                                          ResultOf<T3, E> result3)
     {
-        var errors = new List<E>();
+        // See Combine<T1, T2, E> for why the list is lazy and the Ok path asserts with `!`.
+        List<E>? errors = null;
 
-        var hasValue1 = result1.TryGetValue(out var value1);
-        var hasValue2 = result2.TryGetValue(out var value2);
-        var hasValue3 = result3.TryGetValue(out var value3);
+        var ok1 = result1.TryGetValue(out var value1);
+        if (!ok1 && result1.TryGetFail(out var fail1)) { (errors ??= []).Add(fail1.ErrorValue); }
 
-        if (!hasValue1)
-        {
-            result1.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
+        var ok2 = result2.TryGetValue(out var value2);
+        if (!ok2 && result2.TryGetFail(out var fail2)) { (errors ??= []).Add(fail2.ErrorValue); }
 
-        if (!hasValue2)
-        {
-            result2.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
+        var ok3 = result3.TryGetValue(out var value3);
+        if (!ok3 && result3.TryGetFail(out var fail3)) { (errors ??= []).Add(fail3.ErrorValue); }
 
-        if (!hasValue3)
-        {
-            result3.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
-
-
-        return errors.Count > 0
+        return errors is not null
             ? Fail<(T1, T2, T3), List<E>>(errors)
-            : Ok<(T1, T2, T3), List<E>>((value1, value2, value3));
+            : Ok<(T1, T2, T3), List<E>>((value1!, value2!, value3!));
     }
 
     /// <summary>
@@ -586,37 +621,23 @@ public static class ResultOf
                                                                                  ResultOf<T3, E> result3,
                                                                                  ResultOf<T4, E> result4)
     {
-        var errors = new List<E>();
+        // See Combine<T1, T2, E> for why the list is lazy and the Ok path asserts with `!`.
+        List<E>? errors = null;
 
-        var hasValue1 = result1.TryGetValue(out var value1);
-        var hasValue2 = result2.TryGetValue(out var value2);
-        var hasValue3 = result3.TryGetValue(out var value3);
-        var hasValue4 = result4.TryGetValue(out var value4);
+        var ok1 = result1.TryGetValue(out var value1);
+        if (!ok1 && result1.TryGetFail(out var fail1)) { (errors ??= []).Add(fail1.ErrorValue); }
 
-        if (!hasValue1)
-        {
-            result1.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
+        var ok2 = result2.TryGetValue(out var value2);
+        if (!ok2 && result2.TryGetFail(out var fail2)) { (errors ??= []).Add(fail2.ErrorValue); }
 
-        if (!hasValue2)
-        {
-            result2.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
+        var ok3 = result3.TryGetValue(out var value3);
+        if (!ok3 && result3.TryGetFail(out var fail3)) { (errors ??= []).Add(fail3.ErrorValue); }
 
-        if (!hasValue3)
-        {
-            result3.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
+        var ok4 = result4.TryGetValue(out var value4);
+        if (!ok4 && result4.TryGetFail(out var fail4)) { (errors ??= []).Add(fail4.ErrorValue); }
 
-
-        if (!hasValue4)
-        {
-            result4.Match(_ => { }, error => errors.Add(error.ErrorValue));
-        }
-
-
-        return errors.Count > 0
+        return errors is not null
             ? Fail<(T1, T2, T3, T4), List<E>>(errors)
-            : Ok<(T1, T2, T3, T4), List<E>>((value1, value2, value3, value4));
+            : Ok<(T1, T2, T3, T4), List<E>>((value1!, value2!, value3!, value4!));
     }
 }

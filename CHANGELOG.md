@@ -6,122 +6,114 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Each package versions
 independently; the heading below states which ones a release covers.
 
-## [2.0.0] - unreleased
+## [1.0.0] - unreleased
 
-Everything below is in **Corsinvest.Fx.Functional**. `Corsinvest.Fx.Defer` ships 2.0.0 as well but
-carries no user-visible change - it shares the repository's version number. `Corsinvest.Fx.Unsafe`
-and `Corsinvest.Fx.CompileTime` stay at `0.1.0-alpha`; the packaging fix below is the only thing
-that reaches them.
+First public release. Covers **Corsinvest.Fx.Functional** and **Corsinvest.Fx.Defer**, both
+stable, and **Corsinvest.Fx.Unsafe**, which ships at the same version but is experimental - see its
+README for what that means before depending on it. **Corsinvest.Fx.CompileTime** stays at
+`0.1.0-alpha`: it has no test coverage yet, and the version says so.
 
-### Changed - breaking
+### Corsinvest.Fx.Functional
 
-- **Union types are declared with the `IUnion<T1..T8>` marker interface; the `[Union]` and
-  `[Union<T1..T8>]` attributes are removed.** There is no compatibility shim, and the compile
-  errors a 1.x project gets do not name the replacement - see the
-  [migration guide](src/Functional/Corsinvest.Fx.Functional/docs/Union.md#migrating-from-1x) for
-  the mechanical translation.
+**Union types** are declared with the `IUnion<T1..T8>` marker interface:
 
-  The move exists because an attribute cannot express a case that closes over the root's own type
-  parameter. `[Union<Ok<T>, Fail<E>>]` is rejected by the compiler outright (CS8968: an attribute
-  argument may not use type parameters), which is why `Option<T>` and `ResultOf<T, E>` could never
-  be written as unions in 1.x. A base list has no such restriction, so
-  `ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>` compiles, and Roslyn hands the generator the case
-  types already substituted.
+```csharp
+public abstract partial record PaymentMethod : IUnion<CreditCard, PayPal, BankTransfer>;
+```
 
-- **Case types are now ordinary standalone declarations**, not nested `partial record`s inside the
-  root. One type can therefore take part in several unions.
+The case types are ordinary standalone declarations, so one type can take part in several unions,
+and a case can close over the root's own type parameter. That last point is why the marker is an
+interface rather than an attribute: `[Union<Ok<T>, Fail<E>>]` is rejected by the compiler outright
+(CS8968, an attribute argument may not use type parameters), while a base list has no such
+restriction. `Option<T> : IUnion<Some<T>, None>` and `ResultOf<T, E> : IUnion<Ok<T>, Fail<E>>` are
+built on exactly that, so both are unions in their own right and gain the generated
+`Match`/`MatchAsync`/`Is*`/`TryGet*` surface.
 
-- **A union root must be written `abstract partial`.** 1.x added `abstract` silently; a root
-  missing either keyword is now reported as **UNION014** rather than corrected behind your back.
+A union root is written `abstract partial`; a root missing either keyword is reported as
+**UNION014** rather than corrected silently. The generator emits one sealed nested wrapper per
+case, which keeps the hierarchy closed and is what a `switch` matches on. A wrapper prints as its
+value - `ToString()` returns the value's own string rather than exposing a wrapper name no other
+generated member uses.
 
-- **A union case prints as its value.** `ToString()` on a wrapper returns the value's own string
-  rather than `NetworkError { Value = Timeout }`, which exposed a wrapper name no other generated
-  member uses. Equality, `GetHashCode`, `with` and positional patterns are unchanged.
+**Exhaustiveness checking for `switch` over a union.** `UNION004` names each case a `switch` fails
+to handle and comes with a code fix that writes the missing arms. Three suppressors retire the
+diagnostics that would otherwise push you toward a discard arm - `CS8509` (UNION005), `IDE0010`
+(UNION006) and `IDE0072` (UNION007) - because on a closed hierarchy that arm is unreachable code
+that also hides the next case you add. It works on `switch` statements too, which the compiler
+never checks at all.
 
-`Option<T>` and `ResultOf<T, E>` are themselves `IUnion<...>` roots now, but **neither one's public
-API moved**: code that only calls `Match`, `Some`/`None`, `Ok`/`Fail`, `Map`, `Bind`, or switches
-on the wrapper types compiles against 2.0.0 unmodified. The break reaches only code that declared
-its *own* `[Union]` types.
+**Diagnostics for union shapes that cannot work**: `UNION008` (two cases resolve to the same
+wrapper name), `UNION009` (two cases share one CLR type, so no implicit conversions are generated),
+`UNION012` (an interface case type - C# forbids a user-defined conversion to or from an interface)
+and `UNION013` (more than one `IUnion<...>` on a root). `[UnionCaseName<T>("...")]` pins a
+wrapper's name when the generated one would collide.
 
-### Added
+**`ResultOf<T, E>` and `Option<T>`** for type-safe error handling without exceptions: railway-
+oriented `Map`/`Bind`/`Recover` chains, LINQ query syntax, async throughout, and a dual naming
+scheme (`IsOk`/`IsSuccess`, `Tap`/`OnSuccess`) so FluentResults-style code reads naturally. Factory
+methods `Ok()` and `Fail()` are globally available by default via `EnableFunctionalGlobalUsings`.
 
-- **Exhaustiveness checking for `switch` over a union.** `UNION004` names each case a `switch`
-  fails to handle, and three suppressors retire the diagnostics that used to push you toward a
-  discard arm - `CS8509` (UNION005), `IDE0010` (UNION006) and `IDE0072` (UNION007). On a closed
-  hierarchy that arm is unreachable code that also hides the next case you add.
+**State-passing `Match` overloads** on every shape - `Match`, `MatchAsync`, and their void-returning
+forms. A handler that reads from the enclosing scope captures, and a capturing lambda allocates a
+display class plus one delegate per handler on every call; passing the value explicitly lets each
+handler be `static`. Measured on a two-case union, 152 B and 818 ms per 20M calls became 0 B and
+85 ms.
 
-- **A code fix that fills in the missing cases**, offered on any `UNION004`.
+`TryGet{Case}` emits `[NotNullWhen(true)] out T?` for a reference-type case, so a caller who
+ignores the `bool` gets `CS8602` and one who honours it stays warning-free. A value-type case keeps
+`out T`, since `out int?` would mean `Nullable<int>` and change the parameter's type. The
+`TryGetValue` extensions on `Option<T>` and `ResultOf<T, E>` carry `[MaybeNullWhen(false)]` for the
+same reason, spelled with an attribute because their `T` is unconstrained.
 
-- **State-passing `Match` overloads** on every shape - `Match`, `MatchAsync`, and their
-  void-returning forms. A handler that reads from the enclosing scope captures, and a capturing
-  lambda allocates a display class plus one delegate per handler on every call. Passing the value
-  explicitly lets each handler be `static`: measured on a two-case union, 152 B and 818 ms per 20M
-  calls became 0 B and 85 ms.
+**A case carrying no data allocates nothing.** The generator emits one shared instance per dataless
+case, so `Option.None<T>()` is 0 B rather than 24 B. Record equality is by value, which keeps the
+sharing invisible: the shared instance and a freshly constructed one stay indistinguishable through
+`==`, `Equals`, `GetHashCode`, a `switch`, a pattern with deconstruction, and use as a dictionary
+key. Sharing is applied only where it cannot be observed - the case must be a record (a plain class
+compares by reference, so sharing would change `==` from `false` to `true`), with no instance state
+to mutate and no hand-written constructor whose side effects would otherwise run once instead of
+once per case.
 
-- **`Option<T>` and `ResultOf<T, E>` expressed through `IUnion<...>`**, so both gain the generated
-  `Match`/`MatchAsync`/`Is*`/`TryGet*` surface and the exhaustiveness checking above.
+**`Option.Some` rejects `null`.** A `Some` holding `null` reports `IsSome` while carrying nothing -
+the state `Option<T>` exists to rule out - and the `NullReferenceException` it was meant to prevent
+would surface later, inside a `Map` or `Bind`, far from where the null entered. `Option.FromNullable`
+remains the way to turn a possible null into `None`. Value types are unaffected: `Option.Some(0)` is
+`Some`, because `default(int)` is not null.
 
-- **Diagnostics for union shapes that cannot work**: `UNION008` (two cases resolve to the same
-  wrapper name), `UNION009` (two cases share one CLR type, so no implicit conversions are
-  generated for that union), `UNION012` (an interface case type - C# forbids a user-defined
-  conversion to or from an interface), `UNION013` (more than one `IUnion<...>` on a root).
+**`ResultOf.Try`** is the standalone entry point for turning exceptions into results, carrying both
+the `Func` overloads and the `Action` overloads returning `ResultOf<Unit, E>`. The `.Try()`
+extensions complement it by taking a value from the pipeline, which the standalone form cannot
+express.
 
-- **`[UnionCaseName<T>("...")]`** to pin a wrapper's name when the generated one would collide or
-  when a 1.x nested name has to stay stable.
+**`Option.TapSome`/`TapSomeAsync`** rather than `Tap`/`TapAsync`. The name matches `TapOk` on
+`ResultOf`, which already says which case it runs on, and it avoids a collision:
+`PipeExtensions.Tap` extends every type, so a `Tap` on `Option<T>` was ambiguous between the two
+(CS0121) with nothing in the error pointing at the fix. They mean different things - `TapSome` runs
+only on `Some` and hands the action the value, while `Pipe.Tap` always runs and hands it the
+`Option<T>` itself - so both are kept.
 
-- **`TryHelper` is gone; `ResultOf.Try` is the one standalone entry point.** The two classes had
-  four methods with identical signatures and identical bodies, which is what forced `TryHelper` out
-  of the global static imports - importing both made every unqualified `Try(...)` ambiguous
-  (CS0121). `ResultOf.Try` now also carries the `Action` overloads returning `ResultOf<Unit, E>`,
-  which only `TryHelper` had. The `.Try()` extensions are untouched: they take a value from the
-  pipeline, which the standalone form has no way to express.
+**`Pipe` extensions** for data transformation chains - `Pipe`, `PipeIf`, `PipeEither`, `Tap`,
+`TapAsync` and their async forms. `PipeIf` and `PipeEither` each take both a `bool` and a predicate
+receiving the piped value.
 
-- **`PipeEither` overloads taking a predicate**, sync and async. Only the `bool` form existed for a
-  value, so a branch could not read the value it was piped - which is exactly what a mid-chain
-  branch needs. `PipeIf` already had both forms.
+### Corsinvest.Fx.Defer
 
-### Fixed
-
-- `TryGet{Case}` assigned `default!` to a non-nullable `out`, telling the compiler "never null" on
-  both paths including the false one. A reference-type case now emits
-  `[NotNullWhen(true)] out T?`, so a caller who ignores the `bool` gets `CS8602` and one who
-  honours it stays warning-free. A value-type case keeps its old signature: `out int?` would mean
-  `Nullable<int>` and change the parameter's type.
-
-- A union whose own type parameter was named `TResult` did not compile - the generated
-  `Match<TResult>` shadowed it (`CS0693`), leaving handler and return type spelled the same while
-  denoting different symbols (`CS1503`). Generated method type parameters now dodge whatever the
-  root declares.
-
-- Generic case types keep their bare name: `Option<T>.Some`, not `Option<T>.SomeOfT`. The
-  argument-qualified form is used only when a union really does carry two constructions of the same
-  generic definition.
-
-- Nested union roots, hint-name collisions between roots of the same name in different namespaces,
-  and shadowed type parameters threaded into the generated `Task<TRoot>` extension class.
-
-- **`dotnet pack` produced no package at all.** Three independent faults: `Functional` and `Unsafe`
-  located their analyzer DLL through `$(OutputPath)\..`, which lands in the project's own
-  `bin\$(Configuration)\` rather than in the sibling generator project; `DocumentationFile` was set
-  from `$(AssemblyName)` before the SDK defines it, so every project wrote a file literally named
-  `.xml` and NuGet refused the package (`NU5119`); and `CompileTime` declared a
-  `PackageReadmeFile` it never packed (`NU5039`). All four packages now build.
-
-- Documentation examples that did not compile: the README piped through `PipeTapAsync`, which does
-  not exist (the method is `TapAsync`), and five snippets wrote `.Pipe(Power, 2)`, where the extra
-  argument's type is inferred from the literal and fails to match a `double` parameter (`CS0123`).
+Go-style `defer` for cleanup on scope exit, in LIFO order. The async overload returns
+`IAsyncDisposable` rather than `IDisposable`, so `await using` is the only way to consume it and a
+plain `using` is a compile error - which is what keeps an async cleanup from being blocked on by
+accident. A deferred action that throws is swallowed so the remaining defers still run, the same
+trade a `finally` makes.
 
 ### Documentation
 
-- [Union Types](src/Functional/Corsinvest.Fx.Functional/docs/Union.md) rewritten around
-  `IUnion<...>`: why an interface rather than an attribute, the switch and exhaustiveness story,
-  the migration guide, a comparison with C# 15's `union` keyword, and the generated code in full.
+- [Union Types](src/Functional/Corsinvest.Fx.Functional/docs/Union.md) - why an interface rather
+  than an attribute, the switch and exhaustiveness story, a comparison with C# 15's `union`
+  keyword, and the generated code in full.
+- [ResultOf](src/Functional/Corsinvest.Fx.Functional/docs/ResultOf.md),
+  [Option](src/Functional/Corsinvest.Fx.Functional/docs/Option.md),
+  [Pipe](src/Functional/Corsinvest.Fx.Functional/docs/Pipe.md),
+  [Try](src/Functional/Corsinvest.Fx.Functional/docs/Try.md) and
+  [Unit](src/Functional/Corsinvest.Fx.Functional/docs/Unit.md).
+- Ten runnable examples under [examples/](examples/).
 
-- [Pipe](src/Functional/Corsinvest.Fx.Functional/docs/Pipe.md) rewritten - it documented one method
-  out of twenty-five and closed with a link to itself.
-
-## Earlier
-
-Releases before 2.0.0 predate this file.
-
-[2.0.0]: https://github.com/Corsinvest/dotnet-fx/releases
+[1.0.0]: https://github.com/Corsinvest/dotnet-fx/releases

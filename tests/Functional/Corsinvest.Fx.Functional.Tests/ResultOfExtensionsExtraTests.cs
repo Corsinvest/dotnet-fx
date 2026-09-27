@@ -243,6 +243,40 @@ public class ResultOfExtensionsExtraTests
         Assert.Null(value);  // default(string) = null
     }
 
+    [Fact]
+    public void TryGetValue_ReferenceType_IsAnnotatedMaybeNullWhenFalse()
+    {
+        // The runtime behaviour above is only half of it: the signature has to tell the nullable
+        // analysis that `value` is null on the false path, or a caller who skips the bool check
+        // dereferences null with no warning. A plain `out T` assigned default! claimed the
+        // opposite on both paths.
+        var parameter = typeof(ResultOfExtensions)
+            .GetMethods()
+            .Single(m => m.Name == nameof(ResultOfExtensions.TryGetValue))
+            .GetParameters()
+            .Single(p => p.IsOut);
+
+        Assert.Contains(
+            parameter.GetCustomAttributesData(),
+            a => a.AttributeType.Name == "MaybeNullWhenAttribute");
+    }
+
+    [Fact]
+    public void TryGetValue_ValueType_KeepsItsSignature()
+    {
+        // MaybeNullWhen rather than `out T?`: on a value type the latter would mean Nullable<T>
+        // and change the parameter's type, so every existing `out int` caller would stop
+        // compiling. This call is the regression test - it only builds if the type is still int.
+        var result = ResultOf.Ok<int, string>(42);
+
+        Assert.True(result.TryGetValue(out int value));
+        Assert.Equal(42, value);
+
+        var failed = ResultOf.Fail<int, string>("nope");
+        Assert.False(failed.TryGetValue(out int missing));
+        Assert.Equal(0, missing);
+    }
+
     // ============================================
     // Chaining multiple operations
     // ============================================

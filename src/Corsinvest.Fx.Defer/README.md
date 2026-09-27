@@ -1,73 +1,35 @@
 # Corsinvest.Fx.Defer
 
-Go-style `defer` statements for C#. Automatically execute cleanup code when scope exits.
+Go-style `defer` for C#: run a cleanup action when the scope exits, written next to the thing it
+undoes.
 
-## Why Defer?
+## When to use it
 
-Resource management in C# traditionally requires verbose `try/finally` blocks or careful `using` statement placement. Languages like **Go**, **Zig**, **Swift**, and **Rust** have recognized that cleanup code should be **declared next to acquisition** for better readability and maintainability.
+C# already handles one kind of cleanup well. `using` disposes an `IDisposable`, in reverse order,
+on every exit path, with no allocation. **If the resource implements `IDisposable` or
+`IAsyncDisposable`, use `using`** - it is shorter, faster and safer than anything this package
+offers.
 
-### The Problem
+What `using` cannot express is an arbitrary action at scope exit. That is the gap `defer` fills:
 
-```csharp
-// Traditional C# - cleanup far from acquisition
-void ProcessFile(string path)
-{
-    var file = File.Open(path);
-    var lock = AcquireLock();
-    var connection = new SqlConnection(connString);
+| The cleanup is... | Use |
+| --- | --- |
+| `Dispose()` on an `IDisposable` - files, streams, connections, `HttpClient`, locks | `using` |
+| restoring a value you changed | `defer` |
+| decrementing a counter, leaving a logical section | `defer` |
+| the other half of a `Begin`/`End` or `Acquire`/`Release` pair on an API that never implemented `IDisposable` | `defer` |
+| deleting a temp file, flushing a diagnostic buffer, recording elapsed time | `defer` |
 
-    try
-    {
-        connection.Open();
-        // ... complex logic ...
-    }
-    finally
-    {
-        connection?.Close();    // Far from acquisition
-        ReleaseLock(lock);      // Easy to forget
-        file?.Close();          // Wrong order?
-    }
-}
-```
-
-### The Solution
+The common thread: in the second group **there is no object to dispose**, only an action to run.
+Without `defer` you either write a bespoke struct wrapper for each case, or a `try/finally` that
+puts the cleanup pages below the thing it belongs to.
 
 ```csharp
-// With defer - cleanup next to acquisition
-void ProcessFile(string path)
-{
-    var file = File.Open(path);
-    using var _1 = defer(file.Close);      // Cleanup declared here!
-
-    var lock = AcquireLock();
-    using var _2 = defer(() => ReleaseLock(lock));  // Next to acquisition
-
-    var connection = new SqlConnection(connString);
-    connection.Open();
-    using var _3 = defer(connection.Close);  // Clear intent
-
-    // ... complex logic ...
-    // All cleanup happens automatically in reverse order
-}
+// The niche, in one example: the thing being undone is a value, not a resource.
+var previous = Console.ForegroundColor;
+Console.ForegroundColor = ConsoleColor.Red;
+using var _ = defer(() => Console.ForegroundColor = previous);
 ```
-
-### Language Comparison
-
-| Language  | Syntax                         | Description               |
-| --------- | ------------------------------ | ------------------------- |
-| **Go**    | `defer cleanup()`              | Built-in language feature |
-| **Zig**   | `defer cleanup()`              | Built-in language feature |
-| **Swift** | `defer { cleanup() }`          | Built-in language feature |
-| **Rust**  | `Drop` trait                   | Automatic via RAII        |
-| **C#**    | `using var _ = defer(cleanup)` | This library!             |
-
-### Benefits
-
-✅ **Locality** - Cleanup code next to acquisition
-✅ **Safety** - No forgotten cleanup calls
-✅ **Order** - Automatic LIFO execution
-✅ **Exceptions** - Cleanup runs even on exceptions
-✅ **Readability** - Clear intent, less nesting
 
 ## Installation
 
@@ -75,199 +37,160 @@ void ProcessFile(string path)
 dotnet add package Corsinvest.Fx.Defer
 ```
 
-## Quick Start
+`defer()` is globally available on install - no `using` directive needed. See
+[Configuration](#configuration) to opt out.
+
+## Usage
+
+### Restoring state
+
+The most common case. Save, change, put back:
 
 ```csharp
-// No imports needed! defer() is globally available
-void ProcessFile(string path)
+void WithInvariantCulture()
 {
-    var file = File.Open(path);
-    using var _ = defer(() => file.Close());
+    var previous = CultureInfo.CurrentCulture;
+    CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+    using var _ = defer(() => CultureInfo.CurrentCulture = previous);
 
-    // file.Close() called automatically when method exits
+    // ... every exit path from here restores the culture, including exceptions.
 }
 ```
 
-## Features
+### Balancing a counter
 
-✅ LIFO execution - Last defer executes first (like Go)
-✅ Exception safe - Defers execute even on exception
-✅ Zero allocation overhead - Class-based with cleanup safety
-✅ **Auto-global availability** - No imports needed!
-✅ **Compile-time safety** - Async defers MUST use `await using` (compiler enforced)
-✅ Non-blocking async - No thread blocking with async cleanup
-✅ Simple API - Two overloads: `defer(Action)` and `defer(Func<Task>)`
-✅ MSBuild integration - Automatic GlobalUsings via package reference
-
-## Usage Examples
-
-### Basic Defer Actions
+The decrement sits next to the increment, so an early `return` added later cannot skip it:
 
 ```csharp
-void Example()
+void Walk(Node node)
 {
-    var lock = AcquireLock();
-    using var _ = defer(() => ReleaseLock(lock));
+    _depth++;
+    using var _ = defer(() => _depth--);
 
-    // Logic...
-}  // ReleaseLock called automatically
-```
-
-### Real-World: File Processing with Cleanup
-
-```csharp
-void ProcessDataFile(string inputPath)
-{
-    // Open input file
-    var input = File.OpenRead(inputPath);
-    using var _1 = defer(() => input.Close());
-
-    // Create temp file for processing
-    var tempPath = Path.GetTempFileName();
-    using var _2 = defer(() => File.Delete(tempPath));
-
-    // Open output
-    var output = File.OpenWrite(tempPath);
-    using var _3 = defer(() => output.Close());
-
-    // Process data...
-    // All cleanup happens automatically in reverse order:
-    // 1. output.Close()
-    // 2. File.Delete(tempPath)
-    // 3. input.Close()
+    if (_depth > MaxDepth) { return; }   // still decremented
+    foreach (var child in node.Children) { Walk(child); }
 }
 ```
 
-### Real-World: Database Transaction
+### Closing a `Begin`/`End` pair
+
+Interop and older APIs are full of paired calls that never became `IDisposable`:
 
 ```csharp
-async Task ProcessOrderAsync(Order order)
-{
-    var conn = new SqlConnection(connString);
-    await conn.OpenAsync();
-    await using var _ = defer(async () => await conn.CloseAsync());
-
-    var tx = await conn.BeginTransactionAsync();
-    await using var __ = defer(async () => await tx.RollbackAsync());
-
-    var lockId = await AcquireDistributedLockAsync(order.Id);
-    await using var ___ = defer(async () => await ReleaseDistributedLockAsync(lockId));
-
-    // Process order...
-    await SaveOrderAsync(order, conn, tx);
-    await UpdateInventoryAsync(order, conn, tx);
-
-    // Commit if all succeeded
-    await tx.CommitAsync();
-
-    // Cleanup happens in LIFO order:
-    // 1. Release distributed lock
-    // 2. Rollback transaction (if not committed)
-    // 3. Close connection
-}
+native.BeginBatch();
+using var _ = defer(() => native.EndBatch());
 ```
 
-### Real-World: HTTP Client with Metrics
+### Temporary files and side effects
 
 ```csharp
-async Task<string> FetchDataAsync(string url)
-{
-    var timer = Stopwatch.StartNew();
-    using var _1 = defer(() =>
-    {
-        timer.Stop();
-        LogMetric("fetch_duration", timer.ElapsedMilliseconds);
-    });
-
-    var client = new HttpClient();
-    using var _2 = defer(() => client.Dispose());
-
-    var response = await client.GetAsync(url);
-    return await response.Content.ReadAsStringAsync();
-
-    // Cleanup:
-    // 1. Dispose HttpClient
-    // 2. Log metrics with elapsed time
-}
+var tempPath = Path.GetTempFileName();
+using var _ = defer(() => File.Delete(tempPath));
 ```
-
-### Real-World: Parallel Resource Management
 
 ```csharp
-void ProcessMultipleFiles(string[] paths)
-{
-    var semaphore = new SemaphoreSlim(1);
-    using var _1 = defer(() => semaphore.Dispose());
-
-    var files = new List<FileStream>();
-    using var _2 = defer(() => files.ForEach(f => f.Close()));
-
-    foreach (var path in paths)
-    {
-        var file = File.OpenRead(path);
-        files.Add(file);
-    }
-
-    // Process all files...
-
-    // Cleanup in reverse:
-    // 1. Close all files
-    // 2. Dispose semaphore
-}
+var timer = Stopwatch.StartNew();
+using var _ = defer(() => LogMetric("elapsed_ms", timer.ElapsedMilliseconds));
 ```
 
+### LIFO order
 
-## Comparison with Go
-
-**Go:**
-
-```go
-defer cleanup()
-```
-
-**C# with Corsinvest.Fx.Defer:**
+Defers run last-registered-first, like nested `using` blocks:
 
 ```csharp
-using var _ = defer(() => cleanup());
+using var _1 = defer(() => Console.WriteLine("First"));
+using var _2 = defer(() => Console.WriteLine("Second"));
+Console.WriteLine("Main");
+// Output: Main, Second, First
 ```
 
-Only `using var _ = ` prefix needed!
+## Async cleanup
 
-## Exception Handling
-
-Exceptions in deferred actions are automatically suppressed to allow other defers to execute:
+The async overload returns `IAsyncDisposable`, **not** `IDisposable`, so it can only be consumed
+with `await using`:
 
 ```csharp
-void Example()
-{
-    using var _1 = defer(new Action(() => throw new Exception()));  // Caught, does not propagate
-    using var _2 = defer(() => Console.WriteLine("OK"));            // Still executes
-}
-// Output: "OK"
+native.BeginBatch();
+await using var _ = defer(async () => await native.EndBatchAsync());
 ```
 
-The `new Action(...)` there is not decoration: a lambda whose body is only a `throw` has no natural
+Plain `using` on an async defer is a compile error:
+
+```csharp
+using var _ = defer(async () => await CleanupAsync());  // error CS8418
+```
+
+That is the point. The alternative design - returning `IDisposable` and blocking on the task
+inside `Dispose()` - deadlocks under a synchronization context and starves the thread pool under
+load. Here the mistake cannot reach runtime, and the cleanup is always awaited, never fired and
+forgotten.
+
+## Exception handling
+
+An action that throws is swallowed so the remaining defers still run - the same trade `finally`
+makes when its own body throws:
+
+```csharp
+using var _1 = defer(new Action(() => throw new Exception()));  // caught, does not propagate
+using var _2 = defer(() => Console.WriteLine("OK"));            // still runs
+// Output: OK
+```
+
+The `new Action(...)` is not decoration: a lambda whose body is only a `throw` has no natural
 return type, so overload resolution picks `defer(Func<Task>)` and plain `using` then rejects the
 `IAsyncDisposable` it returns (CS8418). Typing the lambda picks the synchronous overload.
 
-**This suppression is deliberate but total.** A cleanup that fails does so silently - nothing is
-logged, nothing is rethrown, and the caller cannot tell it happened. That is what lets the
-remaining defers run, and it is the same trade `finally` makes when its own body throws. Where a
-failing cleanup matters, handle it inside the action:
+**The suppression is deliberate but total.** A cleanup that fails does so silently - nothing is
+logged, nothing is rethrown, and the caller cannot tell. Where that matters, handle it inside the
+action:
 
 ```csharp
 using var _ = defer(() =>
 {
-    try { connection.Close(); }
-    catch (Exception ex) { _logger.LogError(ex, "Failed to close connection"); }
+    try { native.EndBatch(); }
+    catch (Exception ex) { _logger.LogError(ex, "EndBatch failed"); }
 });
 ```
 
+A `null` action is **not** covered by that trade. It is rejected with `ArgumentNullException` at
+the call to `defer`, on the line where the mistake is, because silently running no cleanup would
+break the only promise this package makes.
+
+## Performance
+
+`defer` is not free, and the honest comparison is against the `try/finally` it replaces. Allocations
+per scope on .NET 8, restoring one value:
+
+| | allocated |
+| --- | --- |
+| `try/finally` | 0 B |
+| `defer(() => ...)` | 112 B |
+| `defer(state, static ...)` | 32 B |
+| `defer(methodGroup)` | 24 B |
+
+```bash
+dotnet run -c Release --project benchmarks/Corsinvest.Fx.Benchmarks -- --filter '*Defer*'
+```
+
+The 112 bytes are a display class plus a delegate for the capturing lambda, plus the object holding
+it. Passing the state explicitly lets the lambda be `static`, which the compiler caches - leaving
+only the 32-byte object:
+
+```csharp
+var previous = Console.ForegroundColor;
+using var _ = defer(previous, static c => Console.ForegroundColor = c);
+```
+
+Use the plain form for readability; reach for the state-passing form where a measurement says it
+matters. In a genuinely hot loop, use `finally`.
+
+Disposal is **idempotent and thread-safe**: `Interlocked.Exchange` hands the action to exactly one
+caller, so a `using` block plus a stray explicit `Dispose()` runs it once, and two threads racing
+to dispose cannot both run it.
+
 ## Configuration
 
-### Auto Global Usings (Default: Enabled)
-
-By default, `defer()` is automatically available globally when you install the package. To disable:
+`defer()` is available globally by default. To opt out:
 
 ```xml
 <PropertyGroup>
@@ -275,74 +198,59 @@ By default, `defer()` is automatically available globally when you install the p
 </PropertyGroup>
 ```
 
-Then you'll need to manually add:
+Then import it where needed:
 
 ```csharp
 using static Corsinvest.Fx.Defer.Defer;
 ```
 
-## Performance
-
-`defer` is not free, and the honest comparison is against the `try/finally` it replaces. Measured
-on a scope wrapping one call, per invocation:
-
-| | allocation | 20M calls |
-| --- | --- | --- |
-| `try/finally` | 0 B | 79 ms |
-| `defer` | 24 B | 303 ms |
-
-The 24 bytes are the `DeferredAction` holding your delegate, and a lambda that captures adds its
-own closure on top. In a hot loop, use `finally`. Everywhere else - which is most code - 24 bytes
-buys the cleanup sitting next to the acquisition rather than pages below it.
-
-What you get for that:
-
-✅ No reflection - direct delegate calls only
-✅ Non-blocking async - `await`ed, never `.Result` or `.Wait()`
-✅ Compile-time enforcement - an async defer cannot be consumed by plain `using`
-✅ Exception safety - cleanup runs on the exception path too
-✅ Idempotent - `Interlocked.Exchange` means a double `Dispose()` runs the action once
-
 ## API Reference
 
-### Static Methods
-
 ```csharp
-// Simple API - only two methods needed!
-IDisposable defer(Action action)              // Sync cleanup
-IAsyncDisposable defer(Func<Task> asyncAction) // Async cleanup (requires 'await using')
+// Sync cleanup
+IDisposable defer(Action action);
+IDisposable defer<TState>(TState state, Action<TState> action);
+
+// Async cleanup - requires 'await using'
+IAsyncDisposable defer(Func<Task> asyncAction);
+IAsyncDisposable defer<TState>(TState state, Func<TState, Task> asyncAction);
 ```
 
-### Usage Patterns
+All four throw `ArgumentNullException` if the action is `null`. Method groups work as arguments:
 
 ```csharp
-// Synchronous cleanup
-using var _1 = defer(() => Cleanup());
-
-// Asynchronous cleanup (non-blocking)
-await using var _2 = defer(async () => await CleanupAsync());
-
-// Method groups supported
-using var _3 = defer(SomeMethod);
-await using var _4 = defer(SomeAsyncMethod);
+using var _1 = defer(native.EndBatch);
+await using var _2 = defer(native.EndBatchAsync);
 ```
-## 🔧 Troubleshooting
 
-### Error: "'DeferredAsyncAction' is inaccessible due to its protection level"
+## Troubleshooting
 
-**Cause:** Attempting to use `new DeferredAsyncAction()` or `new DeferredAction()` directly instead of the `defer()` factory function. The constructors are internal to ensure the correct disposal pattern is used.
+### `error CS8418: 'IAsyncDisposable' ... Did you mean 'await using'?`
 
-**Solution:** Always use the `defer()` function to create a deferred action.
+An async defer was consumed with plain `using`. Add `await`:
 
 ```csharp
-// ❌ Wrong
-var deferred = new DeferredAsyncAction(async () => await CleanupAsync());
-
-// ✅ Correct - for async cleanup
-await using var _1 = defer(async () => await CleanupAsync());
-
-// ✅ Correct - for sync cleanup
-using var _2 = defer(() => Cleanup());
+await using var _ = defer(async () => await CleanupAsync());
 ```
 
+If the lambda body is only a `throw`, this error means overload resolution picked the async
+overload - type the lambda as `Action` to select the synchronous one.
 
+### `error CS0121: the call is ambiguous`
+
+A lambda that matches both `Action<TState>` and `Func<TState, Task>`. Declare the delegate type
+explicitly:
+
+```csharp
+Action<int> cleanup = static _ => throw new InvalidOperationException();
+using var _ = defer(0, cleanup);
+```
+
+### `'DeferredAction' is inaccessible due to its protection level`
+
+The implementation types are internal by design; the `defer()` factory is the only entry point.
+
+```csharp
+var d = new DeferredAction(() => Cleanup());   // wrong
+using var _ = defer(() => Cleanup());          // correct
+```
